@@ -6,15 +6,12 @@
 #include "Wire.h"
 #endif
 
-//#include <Wire.h>
 #include <Thread.h>
 #include <ThreadController.h>
-//#include <MPU6050.h>
 #include <HMC5883L.h>
 #include <NewPing.h>
 #include <dht11.h>
 #include <Servo.h>
-#include "KalmanFilter.h"
 
 String command = "";
 
@@ -42,10 +39,7 @@ float vHSpeed = 0;
 int vDegrees = 0;
 int vPressure = 0;
 
-int cMotor1 = 0;
-int cMotor2 = 0;
-int cMotor3 = 0;
-int cMotor4 = 0;
+int cMotor = 0;
 
 int cXAxis = 0;
 int cYAxis = 0;
@@ -59,28 +53,23 @@ int frontBackCalibrate = 0;
 
 float thrustMotors[4] = {0, 0, 0, 0};
 
-float tPitchAccel = 0;
-float tRollAccel = 0;
-
-float pitchAccel = 0;
-float rollAccel = 0;
+float pitchAccel[2] = {0, 0};
+float rollAccel[2] = {0, 0};
 
 int maxDistanceApproach = 20 + 15;
 
 int lastRNumber = 0;
 int cRNumber = 0;
 
+bool informationCommand = false;
+
+int countSendCommand = 0;
+
 int MIN_THRUST = 800;
 int MAX_THRUST = 2000;
 
 float CALIBRATE_ACCEL_PITCH = 0;
 float CALIBRATE_ACCEL_ROLL = 0;
-
-KalmanFilter kalmanX(0.001, 0.003, 0.03);
-KalmanFilter kalmanY(0.001, 0.003, 0.03);
-
-float kalPitch[2] = {0, 0};
-float kalRoll[2] = {0, 0};
 
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
@@ -102,7 +91,7 @@ void dmpDataReady() {
 
 bool firstTime = true;
 
-bool startFlashingLED = false;
+bool isFlashingLED = false;
 bool isBuzzing = true;
 
 bool isStabilizing = false;
@@ -113,7 +102,6 @@ bool useSonars = false;
 ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
 Thread* lowSensors = new Thread();
-Thread* detectConnection = new Thread();
 Thread* flashingLED = new Thread();
 
 MPU6050 mpu;
@@ -162,29 +150,13 @@ void setup() {
 
   mpu.initialize();
 
-  // verify connection
-  //Serial.println(F("Testing device connections..."));
-  //Serial.println(mpu.testConnection() ? F("MPU6050 connection successful") : F("MPU6050 connection failed"));
-
-  // wait for ready
-  /*
-  Serial.println(F("\nSend any character to begin DMP programming and demo: "));
-  while (Serial.available() && Serial.read()); // empty buffer
-  while (!Serial.available());                 // wait for data
-  while (Serial.available() && Serial.read()); // empty buffer again
-  */
-
-  // load and configure the DMP
-  //Serial.println(F("Initializing DMP..."));
   devStatus = mpu.dmpInitialize();
 
-  // supply your own gyro offsets here, scaled for min sensitivity
   mpu.setXGyroOffset(220);
   mpu.setYGyroOffset(76);
   mpu.setZGyroOffset(-85);
-  mpu.setZAccelOffset(1788); // 1688 factory default for my test chip
+  mpu.setZAccelOffset(1788);
 
-  // make sure it worked (returns 0 if so)
   if (devStatus == 0) {
     // turn on the DMP, now that it's ready
     //Serial.println(F("Enabling DMP..."));
@@ -207,24 +179,6 @@ void setup() {
     //Serial.println(F(")"));
   }
 
-  /*
-  Serial.println("Initializing : sensors");
-
-  while(!mpu.begin(MPU6050_SCALE_2000DPS, MPU6050_RANGE_2G) && !compass.begin())
-  {
-    Serial.println("Could not find a valid MPU6050 sensor or compass.");
-    delay(500);
-  }
-  */
-
-  /*
-  mpu.setAccelOffsetX(-425);
-  mpu.setAccelOffsetY(-227);
-  mpu.setAccelOffsetZ(1040);
-
-  mpu.setThreshold(20);
-  */
-
   compass.setRange(HMC5883L_RANGE_1_3GA);
   compass.setMeasurementMode(HMC5883L_CONTINOUS);
   compass.setDataRate(HMC5883L_DATARATE_30HZ);
@@ -239,10 +193,6 @@ void setup() {
   lowSensors->onRun(analyzeLowSensors);
   controller.add(lowSensors);
 
-  //detectConnection->setInterval(2000);
-  //detectConnection->onRun(lostConnection);
-  //controller.add(detectConnection);
-
   flashingLED->setInterval(1000);
   flashingLED->onRun(flashLED);
 
@@ -252,14 +202,38 @@ void setup() {
 
 void loop() {
   checkCommand();
+
+  if (useSonars) {
+    analyzeSonars();
+
+    cXAxis = ((vSonars[0][0] < maxDistanceApproach && cXAxis < 0) || (vSonars[1][0] < maxDistanceApproach && cXAxis > 0)) ? 0 : cXAxis;
+    cYAxis = ((vSonars[2][0] < maxDistanceApproach && cYAxis > 0) || (vSonars[3][0] < maxDistanceApproach && cYAxis < 0)) ? 0 : cYAxis;
+
+    if (vSonars[0][0] < maxDistanceApproach || vSonars[1][0] < maxDistanceApproach || vSonars[2][0] < maxDistanceApproach || vSonars[3][0] < maxDistanceApproach || vSonars[4][0] < maxDistanceApproach || vSonars[5][0] < maxDistanceApproach) {
+      isSleeping = true;
+    }
+  }
+
+  if (vHSpeed < -0.04) {
+    isStabilizing = true;
+  }
+
+  if (isStabilizing) {
+    stabilizeDrone();
+  }
+  else if (isSleeping) {
+    sleepDrone();
+  }
+
   defineDegrees();
+  definePitchRoll();
 
   thrustMotors[0] = 0;
   thrustMotors[1] = 0;
   thrustMotors[2] = 0;
   thrustMotors[3] = 0;
-  
-  if (cMotor1 > 0) {
+
+  if (cMotor > 0) {
     //setDegrees();
 
     if (controlMode == 1) {
@@ -287,33 +261,13 @@ void loop() {
       thrustMotors[2] += -frontBackCalibrate;
       thrustMotors[3] += -frontBackCalibrate;
     }
+
+    thrustMotors[0] += cMotor;
+    thrustMotors[1] += cMotor;
+    thrustMotors[2] += cMotor;
+    thrustMotors[3] += cMotor;
   }
 
-  if (useSonars) {
-    analyzeSonars();
-
-    cXAxis = ((vSonars[0][0] < maxDistanceApproach && cXAxis < 0) || (vSonars[1][0] < maxDistanceApproach && cXAxis > 0)) ? 0 : cXAxis;
-    cYAxis = ((vSonars[2][0] < maxDistanceApproach && cYAxis > 0) || (vSonars[3][0] < maxDistanceApproach && cYAxis < 0)) ? 0 : cYAxis;
-
-    if (vSonars[0][0] < maxDistanceApproach || vSonars[1][0] < maxDistanceApproach || vSonars[2][0] < maxDistanceApproach || vSonars[3][0] < maxDistanceApproach || vSonars[4][0] < maxDistanceApproach || vSonars[5][0] < maxDistanceApproach) {
-      isSleeping = true;
-    }
-  }
-  
-  if (isStabilizing) {
-    stabilizeDrone();
-  }
-  else if (isSleeping) {
-    sleepDrone();
-  }
-
-  if (cMotor1 > 0) {
-    thrustMotors[0] += cMotor1;
-    thrustMotors[1] += cMotor2;
-    thrustMotors[2] += cMotor3;
-    thrustMotors[3] += cMotor4;
-  }
-  
   /*
   Serial.print(thrustMotors[0]);
   Serial.print(" - ");
@@ -331,7 +285,7 @@ void loop() {
 
   controller.run();
 
-  if (flashingLED->shouldRun() && startFlashingLED)
+  if (flashingLED->shouldRun() && isFlashingLED)
     flashingLED->run();
 }
 
@@ -354,33 +308,28 @@ void checkCommand()
 
 void parseCommand(String command) {
   char part1 = command.charAt(0);
-  String part2 = command.substring(2);
+
+  int space1 = command.indexOf(" ");
+  int space2 = command.indexOf(" ", space1 + 1);
+
+  String part2 = command.substring(space1 + 1, space2);
+
+  lostConnection(String(command.substring(space2 + 1)).toInt());
 
   if (part1 == 'P') {
-    //Serial.println("POWER");
-
     int comma1 = part2.indexOf("|");
     int comma2 = part2.indexOf("|", comma1 + 1);
     int comma3 = part2.indexOf("|", comma2 + 1);
-    int comma4 = part2.indexOf("|", comma3 + 1);
 
-    cMotor1 = String(part2.substring(0, comma1)).toInt();
-    cMotor2 = cMotor1;
-    cMotor3 = cMotor1;
-    cMotor4 = cMotor1;
+    cMotor = String(part2.substring(0, comma1)).toInt();
 
     cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
 
     cXAxis = String(part2.substring(comma2 + 1, comma3)).toInt();
-    cYAxis = String(part2.substring(comma3 + 1, comma4)).toInt();
-
-    lostConnection(String(part2.substring(comma4 + 1)).toInt());
+    cYAxis = String(part2.substring(comma3 + 1)).toInt();
 
     /*
-    Serial.println(cMotor1);
-    Serial.println(cMotor2);
-    Serial.println(cMotor3);
-    Serial.println(cMotor4);
+    Serial.println(cMotor);
 
     Serial.println(cDegrees);
 
@@ -389,61 +338,50 @@ void parseCommand(String command) {
     */
   }
   else if (part1 == 'M') {
-    int comma = part2.indexOf("|");
-
-    if (part2.substring(0, comma).toInt() == 1) {
+    if (part2.toInt() == 1) {
       controlMode = 1;
     }
     else {
       controlMode = 0;
     }
-
-    lostConnection(String(part2.substring(comma + 1)).toInt());
   }
   else if (part1 == 'C') {
     int comma1 = part2.indexOf("|");
-    //int comma2 = part2.indexOf("|", comma1 + 1);
 
     leftRightCalibrate = String(part2.substring(0, comma1)).toInt();
     frontBackCalibrate = String(part2.substring(comma1 + 1)).toInt();
 
-    //lostConnection(String(part2.substring(comma2 + 1)).toInt());
-
-    //Serial.println("D C Y");
+    Serial.println("D C Y");
   }
   else if (part1 == 'A') {
-    int comma = part2.indexOf("|");
-
-    if (part2.substring(0, comma).equalsIgnoreCase("Y")) {
-      CALIBRATE_ACCEL_PITCH = -tPitchAccel;
-      CALIBRATE_ACCEL_ROLL = -tRollAccel;
+    if (part2.equalsIgnoreCase("Y")) {
+      CALIBRATE_ACCEL_PITCH = -pitchAccel[0];
+      CALIBRATE_ACCEL_ROLL = -rollAccel[0];
+    }
+  }
+  else if (part1 == 'I') {
+    if (part2.equalsIgnoreCase("Y")) {
+      informationCommand = true;
+      countSendCommand = 0;
     }
   }
   else if (part1 == 'S') {
-    int comma = part2.indexOf("|");
-
-    if (part2.substring(0, comma).equalsIgnoreCase("Y")) {
+    if (part2.equalsIgnoreCase("Y")) {
       useSonars = true;
     }
     else
     {
       useSonars = false;
     }
-
-    lostConnection(String(part2.substring(comma + 1)).toInt());
   }
   else if (part1 == 'L') {
-    int comma = part2.indexOf("|");
-
-    if (part2.substring(0, comma).equalsIgnoreCase("Y")) {
-      startFlashingLED = true;
+    if (part2.equalsIgnoreCase("Y")) {
+      isFlashingLED = true;
     }
     else
     {
-      startFlashingLED = false;
+      isFlashingLED = false;
     }
-
-    lostConnection(String(part2.substring(comma + 1)).toInt());
   }
   else
   {
@@ -470,9 +408,7 @@ void defineDegrees() {
   }
 
   vDegrees = heading * 180 / M_PI;
-  
-  //Serial.println(vDegrees);
-  
+
   if (firstTime) {
     cDegrees = vDegrees;
     firstTime = false;
@@ -492,6 +428,88 @@ void setDegrees() {
     thrustMotors[1] += 2;
     thrustMotors[2] += 2;
     thrustMotors[3] -= 2;
+  }
+}
+
+void definePitchRoll() {
+  if (!dmpReady) return;
+
+  while (!mpuInterrupt && fifoCount < packetSize) {}
+
+  mpuInterrupt = false;
+  mpuIntStatus = mpu.getIntStatus();
+
+  fifoCount = mpu.getFIFOCount();
+
+  if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
+    mpu.resetFIFO();
+    //Serial.println(F("FIFO overflow!"));
+  } else if (mpuIntStatus & 0x02) {
+    while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
+
+    mpu.getFIFOBytes(fifoBuffer, packetSize);
+
+    fifoCount -= packetSize;
+
+    mpu.dmpGetQuaternion(&q, fifoBuffer);
+    mpu.dmpGetGravity(&gravity, &q);
+    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
+
+    pitchAccel[0] = (ypr[1] * 180 / M_PI);
+    rollAccel[0] = (ypr[2] * 180 / M_PI);
+
+    pitchAccel[1] = pitchAccel[0] + CALIBRATE_ACCEL_PITCH;
+    rollAccel[1] = rollAccel[0] + CALIBRATE_ACCEL_ROLL;
+
+    //Serial.print(rollAccel);
+    //Serial.print("\t");
+    //Serial.println(pitchAccel);
+  }
+}
+
+void automaticAxis() {
+  if (cXAxis < 0 || cXAxis > 0) {
+    if (cXAxis > rollAccel[1]) {
+      thrustMotors[0] += 5;
+      thrustMotors[2] += 5;
+    }
+    else if (cXAxis < rollAccel[1]) {
+      thrustMotors[1] += -5;
+      thrustMotors[3] += -5;
+    }
+  }
+  else
+  {
+    if (rollAccel[1] > 0) {
+      thrustMotors[0] += rollAccel[1];
+      thrustMotors[2] += rollAccel[1];
+    }
+    else if (rollAccel[1] < 0) {
+      thrustMotors[1] += -rollAccel[1];
+      thrustMotors[3] += -rollAccel[1];
+    }
+  }
+
+  if (cYAxis < 0 || cYAxis > 0) {
+    if (cYAxis > pitchAccel[1]) {
+      thrustMotors[0] += 5;
+      thrustMotors[1] += 5;
+    }
+    else if (cYAxis < pitchAccel[1]) {
+      thrustMotors[2] += -5;
+      thrustMotors[3] += -5;
+    }
+  }
+  else
+  {
+    if (pitchAccel[1] > 0) {
+      thrustMotors[0] += pitchAccel[1];
+      thrustMotors[1] += pitchAccel[1];
+    }
+    else if (pitchAccel[1] < 0) {
+      thrustMotors[2] += -pitchAccel[1];
+      thrustMotors[3] += -pitchAccel[1];
+    }
   }
 }
 
@@ -515,202 +533,16 @@ void manualAxis() {
   }
 }
 
-void analyzeSensors() {
-  /*
-  Vector normAccel = mpu.readNormalizeAccel();
-  Vector normGyro = mpu.readNormalizeGyro();
-
-  pitchAccel = (-(atan2(normAccel.XAxis, sqrt(normAccel.YAxis*normAccel.YAxis + normAccel.ZAxis*normAccel.ZAxis))*180.0)/M_PI) + CALIBRATE_ACCEL_PITCH;
-  rollAccel = ((atan2(normAccel.YAxis, normAccel.ZAxis)*180.0)/M_PI) + CALIBRATE_ACCEL_ROLL;
-
-  float nKalPitch = (float)((kalmanY.update(pitchAccel, normGyro.YAxis) + kalPitch[1]) / 2);
-  float nKalRoll = (float)((kalmanX.update(rollAccel, normGyro.XAxis) + kalRoll[1]) / 2);
-
-  kalPitch[0] = (float)((int)(nKalPitch * 10)) / 10;
-  kalRoll[0] = (float)((int)(nKalRoll * 10)) / 10;;
-
-  kalPitch[1] = kalPitch[0];
-  kalRoll[1] = kalRoll[0];
-
-  Serial.print(kalPitch[0]);
-  Serial.print(" - ");
-  Serial.println(kalRoll[0]);
-  */
-
-  if (!dmpReady) return;
-
-  while (!mpuInterrupt && fifoCount < packetSize) {}
-
-  mpuInterrupt = false;
-  mpuIntStatus = mpu.getIntStatus();
-
-  fifoCount = mpu.getFIFOCount();
-
-  if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-    mpu.resetFIFO();
-    //Serial.println(F("FIFO overflow!"));
-  } else if (mpuIntStatus & 0x02) {
-    while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-
-    mpu.getFIFOBytes(fifoBuffer, packetSize);
-
-    fifoCount -= packetSize;
-
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-
-    tPitchAccel = (ypr[1] * 180 / M_PI);
-    tRollAccel = (ypr[2] * 180 / M_PI);
-
-    pitchAccel = tPitchAccel + CALIBRATE_ACCEL_PITCH;
-    rollAccel = tRollAccel + CALIBRATE_ACCEL_ROLL;
-
-    //Serial.print(rollAccel);
-    //Serial.print("\t");
-    //Serial.println(pitchAccel);
-  }
-
-  //vVSpeed = (normAccel.ZAxis - 9.81) * 0.01;
-  //vHSpeed = sqrt(pow(normAccel.XAxis, 2) + pow(normAccel.YAxis, 2)) * 0.01;
-
-  //Serial.print(vVSpeed);
-  //Serial.print("-");
-  //Serial.println(vHSpeed);
-
-  //Serial.print(" Yg = ");
-  //Serial.print(normGyro.YAxis);
-  //Serial.print(" Zg = ");
-  //Serial.print(normGyro.ZAxis);
-
-  if (useSonars) {
-    cXAxis = ((vSonars[0][0] < maxDistanceApproach && cXAxis < 0) || (vSonars[1][0] < maxDistanceApproach && cXAxis > 0)) ? 0 : cXAxis;
-    cYAxis = ((vSonars[2][0] < maxDistanceApproach && cYAxis > 0) || (vSonars[3][0] < maxDistanceApproach && cYAxis < 0)) ? 0 : cYAxis;
-
-    if (vSonars[0][0] < maxDistanceApproach || vSonars[1][0] < maxDistanceApproach || vSonars[2][0] < maxDistanceApproach || vSonars[3][0] < maxDistanceApproach || vSonars[4][0] < maxDistanceApproach || vSonars[5][0] < maxDistanceApproach) {
-      isSleeping = true;
-    }
-  }
-
-  if (vHSpeed < -0.04) {
-    isStabilizing = true;
-  }
-
-  /*
-  Serial.print(vDegrees);
-  Serial.print("-");
-  Serial.print(pitchAccel);
-  Serial.print("-");
-  Serial.print(rollAccel);
-  Serial.print("-");
-  Serial.print(thrustMotors[0] + cMotor1);
-  Serial.print("-");
-  Serial.print(map((thrustMotors[0] + cMotor1), 0, 100, MIN_THRUST, MAX_THRUST));
-  Serial.print("-");
-  Serial.print(map((thrustMotors[1] + cMotor2), 0, 100, MIN_THRUST, MAX_THRUST));
-  Serial.print("-");
-  Serial.print(map((thrustMotors[2] + cMotor3), 0, 100, MIN_THRUST, MAX_THRUST));
-  Serial.print("-");
-  Serial.println(map((thrustMotors[3] + cMotor4), 0, 100, MIN_THRUST, MAX_THRUST));
-  */
-}
-
-void automaticAxis() {
-  if (!dmpReady) return;
-
-  while (!mpuInterrupt && fifoCount < packetSize) {}
-
-  mpuInterrupt = false;
-  mpuIntStatus = mpu.getIntStatus();
-
-  fifoCount = mpu.getFIFOCount();
-
-  if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-    mpu.resetFIFO();
-    //Serial.println(F("FIFO overflow!"));
-  } else if (mpuIntStatus & 0x02) {
-    while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
-
-    mpu.getFIFOBytes(fifoBuffer, packetSize);
-
-    fifoCount -= packetSize;
-
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-
-    tPitchAccel = (ypr[1] * 180 / M_PI);
-    tRollAccel = (ypr[2] * 180 / M_PI);
-
-    pitchAccel = tPitchAccel + CALIBRATE_ACCEL_PITCH;
-    rollAccel = tRollAccel + CALIBRATE_ACCEL_ROLL;
-
-    //Serial.print(rollAccel);
-    //Serial.print("\t");
-    //Serial.println(pitchAccel);
-  }
-
-  if (cXAxis < 0 || cXAxis > 0) {
-    if (cXAxis > rollAccel) {
-      thrustMotors[0] += 5;
-      thrustMotors[2] += 5;
-    }
-    else if (cXAxis < rollAccel) {
-      thrustMotors[1] += -5;
-      thrustMotors[3] += -5;
-    }
-  }
-  else
-  {
-    if (rollAccel > 0) {
-      thrustMotors[0] += rollAccel;
-      thrustMotors[2] += rollAccel;
-    }
-    else if (rollAccel < 0) {
-      thrustMotors[1] += -rollAccel;
-      thrustMotors[3] += -rollAccel;
-    }
-  }
-
-  if (cYAxis < 0 || cYAxis > 0) {
-    if (cYAxis > pitchAccel) {
-      thrustMotors[0] += 5;
-      thrustMotors[1] += 5;
-    }
-    else if (cYAxis < pitchAccel) {
-      thrustMotors[2] += -5;
-      thrustMotors[3] += -5;
-    }
-  }
-  else
-  {
-    if (pitchAccel > 0) {
-      thrustMotors[0] += pitchAccel;
-      thrustMotors[1] += pitchAccel;
-    }
-    else if (pitchAccel < 0) {
-      thrustMotors[2] += -pitchAccel;
-      thrustMotors[3] += -pitchAccel;
-    }
-  }
-}
-
 void stabilizeDrone() {
   cXAxis = 0;
   cYAxis = 0;
 
   if (vHSpeed > 0) {
-    cMotor1 -= 1;
-    cMotor2 -= 1;
-    cMotor3 -= 1;
-    cMotor4 -= 1;
+    cMotor -= 1;
   }
   else if (vHSpeed < 0)
   {
-    cMotor1 += 1;
-    cMotor2 += 1;
-    cMotor3 += 1;
-    cMotor4 += 1;
+    cMotor += 1;
   }
   else
   {
@@ -723,32 +555,20 @@ void sleepDrone() {
   cYAxis = 0;
 
   if (vSonars[5][0] < 20) {
-    cMotor1 += 5;
-    cMotor2 += 5;
-    cMotor3 += 5;
-    cMotor4 += 5;
+    cMotor += 5;
   }
   else if (vSonars[5][0] == 0 && vSonars[5][1] < 20) {
-    cMotor1 = 0;
-    cMotor2 = 0;
-    cMotor3 = 0;
-    cMotor4 = 0;
+    cMotor = 0;
 
     isSleeping = false;
   }
   else
   {
     if (vHSpeed > 0.01) {
-      cMotor1 -= 1;
-      cMotor2 -= 1;
-      cMotor3 -= 1;
-      cMotor4 -= 1;
+      cMotor -= 1;
     }
     else if (vHSpeed < 0.01) {
-      cMotor1 += 1;
-      cMotor2 += 1;
-      cMotor3 += 1;
-      cMotor4 += 1;
+      cMotor += 1;
     }
   }
 }
@@ -805,8 +625,8 @@ void lostConnection(int rNumber) {
   if (cRNumber >= 4) {
     digitalWrite(pinLED, HIGH);
 
-    if (cMotor1 <= 20) {
-      //cMotor1 = 0;
+    if (cMotor <= 20) {
+      //cMotor = 0;
     }
   }
   else {
@@ -815,33 +635,54 @@ void lostConnection(int rNumber) {
 }
 
 void sendInformations() {
-  Serial.print("D D ");
-  Serial.print(vSonars[0][0]);
-  Serial.print("|");
-  Serial.print(vSonars[1][0]);
-  Serial.print("|");
-  Serial.print(vSonars[2][0]);
-  Serial.print("|");
-  Serial.print(vSonars[3][0]);
-  Serial.print("|");
-  Serial.print(vSonars[4][0]);
-  Serial.print("|");
-  Serial.print(vSonars[5][0]);
-  Serial.print("|");
-  Serial.print(vVSpeed);
-  Serial.print("|");
-  Serial.print(vHSpeed);
-  Serial.print("|");
-  Serial.print(vDegrees);
-  Serial.print("|");
-  Serial.print("12");
-  Serial.print("|");
-  Serial.print("0");
-  Serial.print("|");
-  Serial.print(DHT11.temperature);
-  Serial.print("|");
-  Serial.print(DHT11.humidity);
-  Serial.println();
+  if (informationCommand) {
+    if (countSendCommand > 2) {
+      informationCommand = false;
+    }
+    else {
+      Serial.print("D I ");
+      Serial.print(controlMode);
+      Serial.print("|");
+      Serial.print(useSonars ? 1 : 0);
+      Serial.print("|");
+      Serial.print(isSleeping ? 1 : 0);
+      Serial.print("|");
+      Serial.print(isStabilizing ? 1 : 0);
+      Serial.print("|");
+      Serial.println(isFlashingLED ? 1 : 0);
+      
+      countSendCommand++;
+    }
+  }
+  else {
+    Serial.print("D D ");
+    Serial.print(vSonars[0][0]);
+    Serial.print("|");
+    Serial.print(vSonars[1][0]);
+    Serial.print("|");
+    Serial.print(vSonars[2][0]);
+    Serial.print("|");
+    Serial.print(vSonars[3][0]);
+    Serial.print("|");
+    Serial.print(pitchAccel[1]);
+    Serial.print("|");
+    Serial.print(rollAccel[1]);
+    Serial.print("|");
+    Serial.print(vVSpeed);
+    Serial.print("|");
+    Serial.print(vHSpeed);
+    Serial.print("|");
+    Serial.print(vDegrees);
+    Serial.print("|");
+    Serial.print("12");
+    Serial.print("|");
+    Serial.print("0");
+    Serial.print("|");
+    Serial.print(DHT11.temperature);
+    Serial.print("|");
+    Serial.print(DHT11.humidity);
+    Serial.println();
+  }
 }
 
 void flashLED() {
