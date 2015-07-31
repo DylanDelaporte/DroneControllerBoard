@@ -622,11 +622,14 @@ void lostConnection(int rNumber) {
     lastRNumber = rNumber;
   }
 
-  if (cRNumber >= 4) {
+  if (cRNumber >= 6) {
     digitalWrite(pinLED, HIGH);
 
-    if (cMotor <= 20) {
-      //cMotor = 0;
+    if (cMotor < 50) {
+      cMotor = 0;
+    }
+    else if(cMotor > 50) {
+      cMotor = 50;
     }
   }
   else {
