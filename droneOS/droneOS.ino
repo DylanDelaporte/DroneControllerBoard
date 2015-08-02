@@ -316,9 +316,9 @@ void checkCommand()
 }
 
 void parseCommand(String command) {
-  Serial.print("command : \"");
-  Serial.print(command);
-  Serial.println("\"");
+  //Serial.print("command : \"");
+  //Serial.print(command);
+  //Serial.println("\"");
 
   char part1 = command.charAt(0);
 
