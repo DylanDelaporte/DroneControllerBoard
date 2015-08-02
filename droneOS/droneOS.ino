@@ -98,6 +98,9 @@ bool isStabilizing = false;
 bool isSleeping = false;
 
 bool useSonars = false;
+bool useSensors = false;
+
+int countTest = 0;
 
 ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
@@ -124,12 +127,14 @@ Servo motor3;
 Servo motor4;
 
 void setup() {
+  if (useSensors) {
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-  Wire.begin();
-  TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
+    Wire.begin();
+    TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
 #elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
-  Fastwire::setup(400, true);
+    Fastwire::setup(400, true);
 #endif
+  }
 
   Serial.begin(115200);
 
@@ -140,52 +145,54 @@ void setup() {
 
   //buzzerSound(0);
 
-  DHT11.attach(2);
-  DHT11.read();
+  //DHT11.attach(pinTemperatureSensor);
+  //DHT11.read();
 
   motor1.attach(3);
   motor2.attach(5);
   motor3.attach(6);
   motor4.attach(9);
 
-  mpu.initialize();
+  if (useSensors) {
+    mpu.initialize();
 
-  devStatus = mpu.dmpInitialize();
+    devStatus = mpu.dmpInitialize();
 
-  mpu.setXGyroOffset(220);
-  mpu.setYGyroOffset(76);
-  mpu.setZGyroOffset(-85);
-  mpu.setZAccelOffset(1788);
+    mpu.setXGyroOffset(220);
+    mpu.setYGyroOffset(76);
+    mpu.setZGyroOffset(-85);
+    mpu.setZAccelOffset(1788);
 
-  if (devStatus == 0) {
-    // turn on the DMP, now that it's ready
-    //Serial.println(F("Enabling DMP..."));
-    mpu.setDMPEnabled(true);
+    if (devStatus == 0) {
+      // turn on the DMP, now that it's ready
+      //Serial.println(F("Enabling DMP..."));
+      mpu.setDMPEnabled(true);
 
-    // enable Arduino interrupt detection
-    //Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
-    attachInterrupt(0, dmpDataReady, RISING);
-    mpuIntStatus = mpu.getIntStatus();
+      // enable Arduino interrupt detection
+      //Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
+      attachInterrupt(0, dmpDataReady, RISING);
+      mpuIntStatus = mpu.getIntStatus();
 
-    // set our DMP Ready flag so the main loop() function knows it's okay to use it
-    //Serial.println(F("DMP ready! Waiting for first interrupt..."));
-    dmpReady = true;
+      // set our DMP Ready flag so the main loop() function knows it's okay to use it
+      //Serial.println(F("DMP ready! Waiting for first interrupt..."));
+      dmpReady = true;
 
-    // get expected DMP packet size for later comparison
-    packetSize = mpu.dmpGetFIFOPacketSize();
-  } else {
-    //Serial.print(F("DMP Initialization failed (code "));
-    Serial.print(devStatus);
-    //Serial.println(F(")"));
+      // get expected DMP packet size for later comparison
+      packetSize = mpu.dmpGetFIFOPacketSize();
+    } else {
+      //Serial.print(F("DMP Initialization failed (code "));
+      Serial.print(devStatus);
+      //Serial.println(F(")"));
+    }
+
+    compass.setRange(HMC5883L_RANGE_1_3GA);
+    compass.setMeasurementMode(HMC5883L_CONTINOUS);
+    compass.setDataRate(HMC5883L_DATARATE_30HZ);
+    compass.setSamples(HMC5883L_SAMPLES_8);
+    compass.setOffset(124, -118);
   }
 
-  compass.setRange(HMC5883L_RANGE_1_3GA);
-  compass.setMeasurementMode(HMC5883L_CONTINOUS);
-  compass.setDataRate(HMC5883L_DATARATE_30HZ);
-  compass.setSamples(HMC5883L_SAMPLES_8);
-  compass.setOffset(124, -118);
-
-  outputInformations->setInterval(250);
+  outputInformations->setInterval(350);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -224,9 +231,11 @@ void loop() {
   else if (isSleeping) {
     sleepDrone();
   }
-
-  defineDegrees();
-  definePitchRoll();
+  
+  if(useSensors) {
+    defineDegrees();
+    definePitchRoll();
+  }
 
   thrustMotors[0] = 0;
   thrustMotors[1] = 0;
@@ -307,6 +316,10 @@ void checkCommand()
 }
 
 void parseCommand(String command) {
+  Serial.print("command : \"");
+  Serial.print(command);
+  Serial.println("\"");
+
   char part1 = command.charAt(0);
 
   int space1 = command.indexOf(" ");
@@ -628,7 +641,7 @@ void lostConnection(int rNumber) {
     if (cMotor < 50) {
       cMotor = 0;
     }
-    else if(cMotor > 50) {
+    else if (cMotor > 50) {
       cMotor = 50;
     }
   }
@@ -653,13 +666,16 @@ void sendInformations() {
       Serial.print(isStabilizing ? 1 : 0);
       Serial.print("|");
       Serial.println(isFlashingLED ? 1 : 0);
-      
+
       countSendCommand++;
     }
   }
   else {
+    countTest++;
+    
     Serial.print("D D ");
-    Serial.print(vSonars[0][0]);
+    //Serial.print(vSonars[0][0]);
+    Serial.print(countTest);
     Serial.print("|");
     Serial.print(vSonars[1][0]);
     Serial.print("|");
