@@ -28,10 +28,9 @@ int pinBackSonar = 11;
 int pinUpSonar = 12;
 int pinDownSonar = 13;
 
-int pinTemperatureSensor = 2;
+int pinTemperatureSensor = 4;
 
 int pinLED = 13;
-int pinBuzzer = 1;
 
 int vSonars[6][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
 float vVSpeed = 0;
@@ -98,7 +97,7 @@ bool isStabilizing = false;
 bool isSleeping = false;
 
 bool useSonars = false;
-bool useSensors = false;
+bool useSensors = true;
 
 int countTest = 0;
 
@@ -141,10 +140,7 @@ void setup() {
   Serial.println("Initializing : start");
 
   pinMode(pinLED, OUTPUT);
-  pinMode(pinBuzzer, OUTPUT);
-
-  //buzzerSound(0);
-
+  
   //DHT11.attach(pinTemperatureSensor);
   //DHT11.read();
 
@@ -192,7 +188,7 @@ void setup() {
     compass.setOffset(124, -118);
   }
 
-  outputInformations->setInterval(350);
+  outputInformations->setInterval(300);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -720,38 +716,6 @@ void flashLED() {
   delay(50);
 
   digitalWrite(pinLED, LOW);
-}
-
-void buzzerSound(int type) {
-  if (!isBuzzing) {
-    if (type == 0) {
-      digitalWrite(pinBuzzer, HIGH);
-      delay(100);
-      digitalWrite(pinBuzzer, LOW);
-      delay(400);
-      digitalWrite(pinBuzzer, HIGH);
-      delay(50);
-      digitalWrite(pinBuzzer, LOW);
-      delay(100);
-      digitalWrite(pinBuzzer, HIGH);
-      delay(50);
-      digitalWrite(pinBuzzer, LOW);
-      delay(100);
-      digitalWrite(pinBuzzer, HIGH);
-      delay(200);
-      digitalWrite(pinBuzzer, LOW);
-      delay(200);
-    }
-    else
-    {
-      delay(type * 10);
-      digitalWrite(pinBuzzer, HIGH);
-      delay(200);
-      digitalWrite(pinBuzzer, LOW);
-    }
-
-    isBuzzing = false;
-  }
 }
 
 
