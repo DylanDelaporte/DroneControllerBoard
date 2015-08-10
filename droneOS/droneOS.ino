@@ -70,6 +70,9 @@ int MAX_THRUST = 2000;
 float CALIBRATE_ACCEL_PITCH = 0;
 float CALIBRATE_ACCEL_ROLL = 0;
 
+int axisSensibility = 10;
+int rotationSensibility = 4;
+
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
 uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
@@ -140,7 +143,7 @@ void setup() {
   Serial.println("Initializing : start");
 
   pinMode(pinLED, OUTPUT);
-  
+
   //DHT11.attach(pinTemperatureSensor);
   //DHT11.read();
 
@@ -188,7 +191,7 @@ void setup() {
     compass.setOffset(124, -118);
   }
 
-  outputInformations->setInterval(300);
+  outputInformations->setInterval(250);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -227,8 +230,8 @@ void loop() {
   else if (isSleeping) {
     sleepDrone();
   }
-  
-  if(useSensors) {
+
+  if (useSensors) {
     defineDegrees();
     definePitchRoll();
   }
@@ -239,7 +242,7 @@ void loop() {
   thrustMotors[3] = 0;
 
   if (cMotor > 0) {
-    //setDegrees();
+    setDegrees();
 
     if (controlMode == 1) {
       automaticAxis();
@@ -271,9 +274,12 @@ void loop() {
     thrustMotors[1] += cMotor;
     thrustMotors[2] += cMotor;
     thrustMotors[3] += cMotor;
+    
+    if(thrustMotors[0] < 0 || thrustMotors[1] < 0 || thrustMotors[2] < 0 || thrustMotors[3] < 0) {
+      thrustMotors[0] = thrustMotors[1] = thrustMotors[2] = thrustMotors[3] = 0;
+    }
   }
 
-  /*
   Serial.print(thrustMotors[0]);
   Serial.print(" - ");
   Serial.print(thrustMotors[1]);
@@ -281,7 +287,6 @@ void loop() {
   Serial.print(thrustMotors[2]);
   Serial.print(" - ");
   Serial.println(thrustMotors[3]);
-  */
 
   motor1.writeMicroseconds(map(thrustMotors[0], 0, 100, MIN_THRUST, MAX_THRUST));
   motor2.writeMicroseconds(map(thrustMotors[1], 0, 100, MIN_THRUST, MAX_THRUST));
@@ -368,6 +373,23 @@ void parseCommand(String command) {
       CALIBRATE_ACCEL_ROLL = -rollAccel[0];
     }
   }
+  else if (part1 == 'O') {
+    int comma1 = part2.indexOf("|");
+    
+    int tempAxisSensibility = String(part2.substring(0, comma1)).toInt();
+    int tempRotationSensibility = String(part2.substring(comma1 + 1)).toInt();
+    
+    if(tempAxisSensibility > 5) {
+      axisSensibility = tempAxisSensibility;
+    }
+    
+    if(tempRotationSensibility > 4) {
+      rotationSensibility = tempRotationSensibility;
+    }
+    
+    Serial.println(axisSensibility);
+    Serial.println(rotationSensibility);
+  }
   else if (part1 == 'I') {
     if (part2.equalsIgnoreCase("Y")) {
       informationCommand = true;
@@ -425,18 +447,36 @@ void defineDegrees() {
 }
 
 void setDegrees() {
-  if (cDegrees > vDegrees) {
-    thrustMotors[0] += 2;
-    thrustMotors[1] -= 2;
-    thrustMotors[2] -= 2;
-    thrustMotors[3] += 2;
-  }
-  else if (cDegrees < vDegrees)
-  {
-    thrustMotors[0] -= 2;
-    thrustMotors[1] += 2;
-    thrustMotors[2] += 2;
-    thrustMotors[3] -= 2;
+  if (pitchAccel[1] < 1 && rollAccel[1] < 1) {
+    if (cDegrees > vDegrees) {
+      if ((cDegrees - vDegrees) < ((360 - cDegrees) + vDegrees)) {
+        thrustMotors[0] += rotationSensibility;
+        thrustMotors[1] -= rotationSensibility;
+        thrustMotors[2] -= rotationSensibility;
+        thrustMotors[3] += rotationSensibility;
+      }
+      else {
+        thrustMotors[0] -= rotationSensibility;
+        thrustMotors[1] += rotationSensibility;
+        thrustMotors[2] += rotationSensibility;
+        thrustMotors[3] -= rotationSensibility;
+      }
+    }
+    else if (cDegrees < vDegrees)
+    {
+      if ((vDegrees - cDegrees) > ((360 - vDegrees) + cDegrees)) {
+        thrustMotors[0] += rotationSensibility;
+        thrustMotors[1] -= rotationSensibility;
+        thrustMotors[2] -= rotationSensibility;
+        thrustMotors[3] += rotationSensibility;
+      }
+      else {
+        thrustMotors[0] -= rotationSensibility;
+        thrustMotors[1] += rotationSensibility;
+        thrustMotors[2] += rotationSensibility;
+        thrustMotors[3] -= rotationSensibility;
+      }
+    }
   }
 }
 
@@ -524,21 +564,21 @@ void automaticAxis() {
 
 void manualAxis() {
   if (cXAxis > 0) {
-    thrustMotors[0] += (((float)cXAxis / (float)45) * 10);
-    thrustMotors[2] += (((float)cXAxis / (float)45) * 10);
+    thrustMotors[0] += (((float)cXAxis / (float)45) * axisSensibility);
+    thrustMotors[2] += (((float)cXAxis / (float)45) * axisSensibility);
   }
   else if (cXAxis < 0) {
-    thrustMotors[1] += (((float) - cXAxis / (float)45) * 10);
-    thrustMotors[3] += (((float) - cXAxis / (float)45) * 10);
+    thrustMotors[1] += (((float) - cXAxis / (float)45) * axisSensibility);
+    thrustMotors[3] += (((float) - cXAxis / (float)45) * axisSensibility);
   }
 
   if (cYAxis > 0) {
-    thrustMotors[0] += (((float)cYAxis / (float)45) * 10);
-    thrustMotors[1] += (((float)cYAxis / (float)45) * 10);
+    thrustMotors[0] += (((float)cYAxis / (float)45) * axisSensibility);
+    thrustMotors[1] += (((float)cYAxis / (float)45) * axisSensibility);
   }
   else if (cYAxis < 0) {
-    thrustMotors[2] += (((float) - cYAxis / (float)45) * 10);
-    thrustMotors[3] += (((float) - cYAxis / (float)45) * 10);
+    thrustMotors[2] += (((float) - cYAxis / (float)45) * axisSensibility);
+    thrustMotors[3] += (((float) - cYAxis / (float)45) * axisSensibility);
   }
 }
 
@@ -668,7 +708,7 @@ void sendInformations() {
   }
   else {
     countTest++;
-    
+
     Serial.print("D D ");
     //Serial.print(vSonars[0][0]);
     Serial.print(countTest);
