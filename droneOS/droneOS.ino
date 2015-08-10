@@ -191,7 +191,7 @@ void setup() {
     compass.setOffset(124, -118);
   }
 
-  outputInformations->setInterval(250);
+  outputInformations->setInterval(175);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -713,13 +713,17 @@ void sendInformations() {
 
     Serial.print("D D ");
     //Serial.print(vSonars[0][0]);
-    Serial.print(countTest);
+    //Serial.print(countTest);
+    Serial.print(thrustMotors[0]);
     Serial.print("|");
-    Serial.print(vSonars[1][0]);
+    //Serial.print(vSonars[1][0]);
+    Serial.print(thrustMotors[1]);
     Serial.print("|");
-    Serial.print(vSonars[2][0]);
+    //Serial.print(vSonars[2][0]);
+    Serial.print(thrustMotors[2]);
     Serial.print("|");
-    Serial.print(vSonars[3][0]);
+    //Serial.print(vSonars[3][0]);
+    Serial.print(thrustMotors[3]);
     Serial.print("|");
     Serial.print(pitchAccel[1]);
     Serial.print("|");
