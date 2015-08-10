@@ -279,7 +279,8 @@ void loop() {
       thrustMotors[0] = thrustMotors[1] = thrustMotors[2] = thrustMotors[3] = 0;
     }
   }
-
+  
+  /*
   Serial.print(thrustMotors[0]);
   Serial.print(" - ");
   Serial.print(thrustMotors[1]);
@@ -287,6 +288,7 @@ void loop() {
   Serial.print(thrustMotors[2]);
   Serial.print(" - ");
   Serial.println(thrustMotors[3]);
+  */
 
   motor1.writeMicroseconds(map(thrustMotors[0], 0, 100, MIN_THRUST, MAX_THRUST));
   motor2.writeMicroseconds(map(thrustMotors[1], 0, 100, MIN_THRUST, MAX_THRUST));
@@ -383,7 +385,7 @@ void parseCommand(String command) {
       axisSensibility = tempAxisSensibility;
     }
     
-    if(tempRotationSensibility > 4) {
+    if(tempRotationSensibility > 2) {
       rotationSensibility = tempRotationSensibility;
     }
     
@@ -447,7 +449,7 @@ void defineDegrees() {
 }
 
 void setDegrees() {
-  if (pitchAccel[1] < 1 && rollAccel[1] < 1) {
+  if (pitchAccel[1] < 1 && pitchAccel[1] > -1 && rollAccel[1] < 1 && rollAccel[1] > -1) {
     if (cDegrees > vDegrees) {
       if ((cDegrees - vDegrees) < ((360 - cDegrees) + vDegrees)) {
         thrustMotors[0] += rotationSensibility;
