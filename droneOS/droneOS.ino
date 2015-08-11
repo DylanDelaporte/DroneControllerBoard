@@ -71,7 +71,7 @@ float CALIBRATE_ACCEL_PITCH = 0;
 float CALIBRATE_ACCEL_ROLL = 0;
 
 int axisSensibility = 10;
-int rotationSensibility = 4;
+int rotationSensibility = 2;
 
 bool dmpReady = false;  // set true if DMP init was successful
 uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
@@ -381,16 +381,13 @@ void parseCommand(String command) {
     int tempAxisSensibility = String(part2.substring(0, comma1)).toInt();
     int tempRotationSensibility = String(part2.substring(comma1 + 1)).toInt();
     
-    if(tempAxisSensibility > 5) {
+    if(tempAxisSensibility >= 5) {
       axisSensibility = tempAxisSensibility;
     }
     
-    if(tempRotationSensibility > 2) {
+    if(tempRotationSensibility >= 0) {
       rotationSensibility = tempRotationSensibility;
     }
-    
-    Serial.println(axisSensibility);
-    Serial.println(rotationSensibility);
   }
   else if (part1 == 'I') {
     if (part2.equalsIgnoreCase("Y")) {
