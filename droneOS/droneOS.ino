@@ -60,6 +60,12 @@ int maxDistanceApproach = 20 + 15;
 int lastRNumber = 0;
 int cRNumber = 0;
 
+int cCommand = 0;
+int lastCCommand = 0;
+
+bool lostConnectionCommand = false;
+bool lostConnectionWifi = false;
+
 bool informationCommand = false;
 
 int countSendCommand = 0;
@@ -107,6 +113,7 @@ int countTest = 0;
 ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
 Thread* lowSensors = new Thread();
+Thread* lostConnectionTest = new Thread();
 Thread* flashingLED = new Thread();
 
 MPU6050 mpu;
@@ -191,13 +198,17 @@ void setup() {
     compass.setOffset(124, -118);
   }
 
-  outputInformations->setInterval(175);
+  outputInformations->setInterval(250);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
   lowSensors->setInterval(60000);
   lowSensors->onRun(analyzeLowSensors);
   controller.add(lowSensors);
+
+  lostConnectionTest->setInterval(1000);
+  lostConnectionTest->onRun(lostConnectionTime);
+  controller.add(lostConnectionTest);
 
   flashingLED->setInterval(1000);
   flashingLED->onRun(flashLED);
@@ -274,12 +285,12 @@ void loop() {
     thrustMotors[1] += cMotor;
     thrustMotors[2] += cMotor;
     thrustMotors[3] += cMotor;
-    
-    if(thrustMotors[0] < 0 || thrustMotors[1] < 0 || thrustMotors[2] < 0 || thrustMotors[3] < 0) {
+
+    if (thrustMotors[0] < 0 || thrustMotors[1] < 0 || thrustMotors[2] < 0 || thrustMotors[3] < 0) {
       thrustMotors[0] = thrustMotors[1] = thrustMotors[2] = thrustMotors[3] = 0;
     }
   }
-  
+
   /*
   Serial.print(thrustMotors[0]);
   Serial.print(" - ");
@@ -319,9 +330,7 @@ void checkCommand()
 }
 
 void parseCommand(String command) {
-  //Serial.print("command : \"");
-  //Serial.print(command);
-  //Serial.println("\"");
+  cCommand++;
 
   char part1 = command.charAt(0);
 
@@ -337,12 +346,14 @@ void parseCommand(String command) {
     int comma2 = part2.indexOf("|", comma1 + 1);
     int comma3 = part2.indexOf("|", comma2 + 1);
 
-    cMotor = String(part2.substring(0, comma1)).toInt();
+    if (!isSleeping) {
+      cMotor = String(part2.substring(0, comma1)).toInt();
 
-    cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
+      cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
 
-    cXAxis = String(part2.substring(comma2 + 1, comma3)).toInt();
-    cYAxis = String(part2.substring(comma3 + 1)).toInt();
+      cXAxis = String(part2.substring(comma2 + 1, comma3)).toInt();
+      cYAxis = String(part2.substring(comma3 + 1)).toInt();
+    }
 
     /*
     Serial.println(cMotor);
@@ -367,7 +378,7 @@ void parseCommand(String command) {
     leftRightCalibrate = String(part2.substring(0, comma1)).toInt();
     frontBackCalibrate = String(part2.substring(comma1 + 1)).toInt();
 
-    Serial.println("D C Y");
+    //Serial.println("D C Y");
   }
   else if (part1 == 'A') {
     if (part2.equalsIgnoreCase("Y")) {
@@ -377,15 +388,15 @@ void parseCommand(String command) {
   }
   else if (part1 == 'O') {
     int comma1 = part2.indexOf("|");
-    
+
     int tempAxisSensibility = String(part2.substring(0, comma1)).toInt();
     int tempRotationSensibility = String(part2.substring(comma1 + 1)).toInt();
-    
-    if(tempAxisSensibility >= 5) {
+
+    if (tempAxisSensibility >= 5) {
       axisSensibility = tempAxisSensibility;
     }
-    
-    if(tempRotationSensibility >= 0) {
+
+    if (tempRotationSensibility >= 0) {
       rotationSensibility = tempRotationSensibility;
     }
   }
@@ -393,6 +404,14 @@ void parseCommand(String command) {
     if (part2.equalsIgnoreCase("Y")) {
       informationCommand = true;
       countSendCommand = 0;
+    }
+  }
+  else if (part1 == 'H') {
+    if (part2.equalsIgnoreCase("Y")) {
+      isSleeping = true;
+    }
+    else {
+      isSleeping = false;
     }
   }
   else if (part1 == 'S') {
@@ -415,7 +434,7 @@ void parseCommand(String command) {
   }
   else
   {
-    Serial.println("D NF Y");
+    //Serial.println("D NF Y");
   }
 }
 
@@ -602,6 +621,7 @@ void sleepDrone() {
   cXAxis = 0;
   cYAxis = 0;
 
+  /*
   if (vSonars[5][0] < 20) {
     cMotor += 5;
   }
@@ -618,6 +638,17 @@ void sleepDrone() {
     else if (vHSpeed < 0.01) {
       cMotor += 1;
     }
+  }
+  */
+  
+  if(cMotor <= 20) {
+    cMotor = 0;
+  }
+  else if(cMotor <= 50) {
+    cMotor -= 0.03;
+  }
+  else {
+    cMotor -= 0.01;
   }
 }
 
@@ -671,17 +702,34 @@ void lostConnection(int rNumber) {
   }
 
   if (cRNumber >= 6) {
-    digitalWrite(pinLED, HIGH);
+    lostConnectionCommand = true;
+  }
+  else {
+    lostConnectionCommand = false;
+  }
+}
 
-    if (cMotor < 50) {
-      cMotor = 0;
-    }
-    else if (cMotor > 50) {
-      cMotor = 50;
-    }
+void lostConnectionTime() {
+  if (cCommand == lastCCommand) {
+    lostConnectionWifi = true;
+  }
+  else {
+    lostConnectionWifi = false;
+  }
+
+  lastCCommand = cCommand;
+
+  if (lostConnectionWifi || lostConnectionCommand) {
+    Serial.println("D L LOST");
+
+    digitalWrite(pinLED, HIGH);
+    
+    isSleeping = true;
   }
   else {
     digitalWrite(pinLED, LOW);
+    
+    isSleeping = false;
   }
 }
 
@@ -696,9 +744,9 @@ void sendInformations() {
       Serial.print("|");
       Serial.print(useSonars ? 1 : 0);
       Serial.print("|");
-      Serial.print(isSleeping ? 1 : 0);
+      Serial.print(axisSensibility);
       Serial.print("|");
-      Serial.print(isStabilizing ? 1 : 0);
+      Serial.print(rotationSensibility);
       Serial.print("|");
       Serial.println(isFlashingLED ? 1 : 0);
 
