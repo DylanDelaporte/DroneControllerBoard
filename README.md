@@ -7,10 +7,10 @@ Drone OS is the arduino sketch to control a drone (use with Py and Qt).
 | ------------- | ----------- |
 | power, rotation, axis | _P motors(%)\|rotation(°)\|XAXIS(°)\|YAXIS(°)_ |
 | calibrate | _C leftright(°)\|frontback(°)_ |
-| calibrate accelerometer | A Y |
-| mode | M 1(automatic) or 0(manal |
-| options | O axisSensibility(°)\|rotationSensibility(°) |
-| informations | I Y |
-| sleep | H Y or N |
-| sonars | S Y or N |
-| led flashing | L Y or N |
+| calibrate accelerometer | _A Y_ |
+| mode | _M 1(automatic) or 0(manual)_ |
+| options | _O axisSensibility(°)\|rotationSensibility(°)_ |
+| informations | _I Y_ |
+| sleep | _H Y/N_ |
+| sonars | _S Y/N_ |
+| led flashing | _L Y/N_ |
