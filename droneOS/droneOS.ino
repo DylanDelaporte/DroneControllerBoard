@@ -103,7 +103,9 @@ bool isFlashingLED = false;
 bool isBuzzing = true;
 
 bool isStabilizing = false;
+
 bool isSleeping = false;
+bool isSleepingDemand = false;
 
 bool useSonars = false;
 bool useSensors = true;
@@ -114,6 +116,7 @@ ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
 Thread* lowSensors = new Thread();
 Thread* lostConnectionTest = new Thread();
+Thread* sleepingProcess = new Thread();
 Thread* flashingLED = new Thread();
 
 MPU6050 mpu;
@@ -147,7 +150,7 @@ void setup() {
 
   Serial.begin(115200);
 
-  Serial.println("Initializing : start");
+  //Serial.println("Initializing : start");
 
   pinMode(pinLED, OUTPUT);
 
@@ -198,7 +201,7 @@ void setup() {
     compass.setOffset(124, -118);
   }
 
-  outputInformations->setInterval(250);
+  outputInformations->setInterval(350);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -210,11 +213,13 @@ void setup() {
   lostConnectionTest->onRun(lostConnectionTime);
   controller.add(lostConnectionTest);
 
+  sleepingProcess->setInterval(200);
+  sleepingProcess->onRun(sleepDrone);
+
   flashingLED->setInterval(1000);
   flashingLED->onRun(flashLED);
-
-  Serial.println((controlMode == 1) ? "AUTOMATIC" : "MANUAL");
-  Serial.println("Initializing : finish");
+  
+  //Serial.println("Initializing : finish");
 }
 
 void loop() {
@@ -225,7 +230,7 @@ void loop() {
 
     cXAxis = ((vSonars[0][0] < maxDistanceApproach && cXAxis < 0) || (vSonars[1][0] < maxDistanceApproach && cXAxis > 0)) ? 0 : cXAxis;
     cYAxis = ((vSonars[2][0] < maxDistanceApproach && cYAxis > 0) || (vSonars[3][0] < maxDistanceApproach && cYAxis < 0)) ? 0 : cYAxis;
-
+    
     if (vSonars[0][0] < maxDistanceApproach || vSonars[1][0] < maxDistanceApproach || vSonars[2][0] < maxDistanceApproach || vSonars[3][0] < maxDistanceApproach || vSonars[4][0] < maxDistanceApproach || vSonars[5][0] < maxDistanceApproach) {
       isSleeping = true;
     }
@@ -235,12 +240,8 @@ void loop() {
     isStabilizing = true;
   }
 
-  if (isStabilizing) {
-    stabilizeDrone();
-  }
-  else if (isSleeping) {
-    sleepDrone();
-  }
+  if (sleepingProcess->shouldRun() && (isSleeping || isSleepingDemand))
+    sleepingProcess->run();
 
   if (useSensors) {
     defineDegrees();
@@ -408,10 +409,10 @@ void parseCommand(String command) {
   }
   else if (part1 == 'H') {
     if (part2.equalsIgnoreCase("Y")) {
-      isSleeping = true;
+      isSleepingDemand = true;
     }
     else {
-      isSleeping = false;
+      isSleepingDemand = false;
     }
   }
   else if (part1 == 'S') {
@@ -548,12 +549,12 @@ void automaticAxis() {
   else
   {
     if (rollAccel[1] > 0) {
-      thrustMotors[0] += rollAccel[1];
       thrustMotors[2] += rollAccel[1];
+      thrustMotors[3] += rollAccel[1];
     }
     else if (rollAccel[1] < 0) {
+      thrustMotors[0] += -rollAccel[1];
       thrustMotors[1] += -rollAccel[1];
-      thrustMotors[3] += -rollAccel[1];
     }
   }
 
@@ -571,10 +572,10 @@ void automaticAxis() {
   {
     if (pitchAccel[1] > 0) {
       thrustMotors[0] += pitchAccel[1];
-      thrustMotors[1] += pitchAccel[1];
+      thrustMotors[2] += pitchAccel[1];
     }
     else if (pitchAccel[1] < 0) {
-      thrustMotors[2] += -pitchAccel[1];
+      thrustMotors[1] += -pitchAccel[1];
       thrustMotors[3] += -pitchAccel[1];
     }
   }
@@ -621,34 +622,14 @@ void sleepDrone() {
   cXAxis = 0;
   cYAxis = 0;
 
-  /*
-  if (vSonars[5][0] < 20) {
-    cMotor += 5;
-  }
-  else if (vSonars[5][0] == 0 && vSonars[5][1] < 20) {
-    cMotor = 0;
-
-    isSleeping = false;
-  }
-  else
-  {
-    if (vHSpeed > 0.01) {
-      cMotor -= 1;
-    }
-    else if (vHSpeed < 0.01) {
-      cMotor += 1;
-    }
-  }
-  */
-  
-  if(cMotor <= 20) {
+  if (cMotor <= 20) {
     cMotor = 0;
   }
-  else if(cMotor <= 50) {
-    cMotor -= 0.03;
+  else if (cMotor <= 50) {
+    cMotor -= 0.5;
   }
   else {
-    cMotor -= 0.01;
+    cMotor -= 0.2;
   }
 }
 
@@ -723,12 +704,12 @@ void lostConnectionTime() {
     Serial.println("D L LOST");
 
     digitalWrite(pinLED, HIGH);
-    
+
     isSleeping = true;
   }
   else {
     digitalWrite(pinLED, LOW);
-    
+
     isSleeping = false;
   }
 }
