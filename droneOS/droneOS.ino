@@ -335,26 +335,6 @@ void parseCommand(String command) {
   
   String part2 = command.substring(space1 + 1);
   
-  /*
-  if(part1 == 'P') {
-    if(!isSleeping && !isSleepingDemand)
-      cMotor = part2.toInt();
-      
-      if(cMotor == 0) {
-        cXAxis = 0;
-        cYAxis = 0;
-      }
-  }
-  else if(part1 == 'X') {
-    int comma1 = part2.indexOf('|');
-    
-    if(!isSleeping && !isSleepingDemand) {
-      cXAxis = part2.substring(0, comma1).toInt();
-      cYAxis = part2.substring(comma1 + 1).toInt();
-    }
-  }
-  */
-  
   if (part1 == 'P') {
     int comma1 = part2.indexOf("|");
     int comma2 = part2.indexOf("|", comma1 + 1);
@@ -433,10 +413,6 @@ void parseCommand(String command) {
     {
       isFlashingLED = false;
     }
-  }
-  else
-  {
-    //Serial.println("D NF Y");
   }
 }
 
@@ -681,8 +657,6 @@ void analyzeLowSensors() {
 
 void lostConnectionTime() {
   if (cCommand == lastCCommand) {
-    Serial.println("D L LOST");
-
     digitalWrite(pinLED, HIGH);
 
     isSleeping = true;
