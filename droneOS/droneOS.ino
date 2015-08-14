@@ -57,14 +57,8 @@ float rollAccel[2] = {0, 0};
 
 int maxDistanceApproach = 20 + 15;
 
-int lastRNumber = 0;
-int cRNumber = 0;
-
 int cCommand = 0;
 int lastCCommand = 0;
-
-bool lostConnectionCommand = false;
-bool lostConnectionWifi = false;
 
 bool informationCommand = false;
 
@@ -209,7 +203,7 @@ void setup() {
   lowSensors->onRun(analyzeLowSensors);
   controller.add(lowSensors);
 
-  lostConnectionTest->setInterval(1000);
+  lostConnectionTest->setInterval(500);
   lostConnectionTest->onRun(lostConnectionTime);
   controller.add(lostConnectionTest);
 
@@ -331,23 +325,42 @@ void checkCommand()
 }
 
 void parseCommand(String command) {
+  //Serial.println(command);
+  
   cCommand++;
 
   char part1 = command.charAt(0);
 
   int space1 = command.indexOf(" ");
-  int space2 = command.indexOf(" ", space1 + 1);
-
-  String part2 = command.substring(space1 + 1, space2);
-
-  lostConnection(String(command.substring(space2 + 1)).toInt());
-
+  
+  String part2 = command.substring(space1 + 1);
+  
+  /*
+  if(part1 == 'P') {
+    if(!isSleeping && !isSleepingDemand)
+      cMotor = part2.toInt();
+      
+      if(cMotor == 0) {
+        cXAxis = 0;
+        cYAxis = 0;
+      }
+  }
+  else if(part1 == 'X') {
+    int comma1 = part2.indexOf('|');
+    
+    if(!isSleeping && !isSleepingDemand) {
+      cXAxis = part2.substring(0, comma1).toInt();
+      cYAxis = part2.substring(comma1 + 1).toInt();
+    }
+  }
+  */
+  
   if (part1 == 'P') {
     int comma1 = part2.indexOf("|");
     int comma2 = part2.indexOf("|", comma1 + 1);
     int comma3 = part2.indexOf("|", comma2 + 1);
 
-    if (!isSleeping) {
+    if (!isSleeping && !isSleepingDemand) {
       cMotor = String(part2.substring(0, comma1)).toInt();
 
       cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
@@ -355,15 +368,6 @@ void parseCommand(String command) {
       cXAxis = String(part2.substring(comma2 + 1, comma3)).toInt();
       cYAxis = String(part2.substring(comma3 + 1)).toInt();
     }
-
-    /*
-    Serial.println(cMotor);
-
-    Serial.println(cDegrees);
-
-    Serial.println(cXAxis);
-    Serial.println(cYAxis);
-    */
   }
   else if (part1 == 'M') {
     if (part2.toInt() == 1) {
@@ -401,18 +405,15 @@ void parseCommand(String command) {
       rotationSensibility = tempRotationSensibility;
     }
   }
-  else if (part1 == 'I') {
-    if (part2.equalsIgnoreCase("Y")) {
-      informationCommand = true;
-      countSendCommand = 0;
-    }
-  }
   else if (part1 == 'H') {
     if (part2.equalsIgnoreCase("Y")) {
       isSleepingDemand = true;
     }
     else {
       isSleepingDemand = false;
+      
+      informationCommand = true;
+      countSendCommand = 0;
     }
   }
   else if (part1 == 'S') {
@@ -678,34 +679,8 @@ void analyzeLowSensors() {
   DHT11.read();
 }
 
-void lostConnection(int rNumber) {
-  if (rNumber == lastRNumber) {
-    cRNumber++;
-  }
-  else {
-    cRNumber = 0;
-    lastRNumber = rNumber;
-  }
-
-  if (cRNumber >= 4) {
-    lostConnectionCommand = true;
-  }
-  else {
-    lostConnectionCommand = false;
-  }
-}
-
 void lostConnectionTime() {
   if (cCommand == lastCCommand) {
-    lostConnectionWifi = true;
-  }
-  else {
-    lostConnectionWifi = false;
-  }
-
-  lastCCommand = cCommand;
-
-  if (lostConnectionWifi || lostConnectionCommand) {
     Serial.println("D L LOST");
 
     digitalWrite(pinLED, HIGH);
@@ -717,11 +692,13 @@ void lostConnectionTime() {
 
     isSleeping = false;
   }
+
+  lastCCommand = cCommand;
 }
 
 void sendInformations() {
   if (informationCommand) {
-    if (countSendCommand > 2) {
+    if (countSendCommand > 4) {
       informationCommand = false;
     }
     else {
