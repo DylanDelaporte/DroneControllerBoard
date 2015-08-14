@@ -520,12 +520,12 @@ void definePitchRoll() {
 void automaticAxis() {
   if (cXAxis < 0 || cXAxis > 0) {
     if (cXAxis > rollAccel[1]) {
-      thrustMotors[0] += 5;
-      thrustMotors[2] += 5;
+      thrustMotors[1] += 5;
+      thrustMotors[3] += 5;
     }
     else if (cXAxis < rollAccel[1]) {
-      thrustMotors[1] += -5;
-      thrustMotors[3] += -5;
+      thrustMotors[0] += 5;
+      thrustMotors[2] += 5;
     }
   }
   else
@@ -546,8 +546,8 @@ void automaticAxis() {
       thrustMotors[1] += 5;
     }
     else if (cYAxis < pitchAccel[1]) {
-      thrustMotors[2] += -5;
-      thrustMotors[3] += -5;
+      thrustMotors[2] += 5;
+      thrustMotors[3] += 5;
     }
   }
   else
