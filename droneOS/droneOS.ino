@@ -201,7 +201,7 @@ void setup() {
     compass.setOffset(124, -118);
   }
 
-  outputInformations->setInterval(350);
+  outputInformations->setInterval(250);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -319,7 +319,7 @@ void checkCommand()
   {
     int byteR = Serial.read();
 
-    if (byteR == 13) {
+    if (byteR == 10) {
       parseCommand(command);
       command = "";
     }
@@ -456,12 +456,17 @@ void defineDegrees() {
   {
     heading -= 2 * PI;
   }
-
-  vDegrees = heading * 180 / M_PI;
-
+  
   if (firstTime) {
+    vDegrees = heading * 180 / M_PI;
+    
     cDegrees = vDegrees;
     firstTime = false;
+  }
+  else {
+    if (pitchAccel[1] < 1 && pitchAccel[1] > -1 && rollAccel[1] < 1 && rollAccel[1] > -1) {
+      vDegrees = heading * 180 / M_PI;
+    }
   }
 }
 
@@ -682,7 +687,7 @@ void lostConnection(int rNumber) {
     lastRNumber = rNumber;
   }
 
-  if (cRNumber >= 6) {
+  if (cRNumber >= 4) {
     lostConnectionCommand = true;
   }
   else {
@@ -773,8 +778,6 @@ void sendInformations() {
 }
 
 void flashLED() {
-  Serial.println("flashLED");
-
   digitalWrite(pinLED, HIGH);
 
   delay(50);
