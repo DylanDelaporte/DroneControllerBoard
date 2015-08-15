@@ -518,14 +518,26 @@ void definePitchRoll() {
 }
 
 void automaticAxis() {
-  if (cXAxis < 0 || cXAxis > 0) {
-    if (cXAxis > rollAccel[1]) {
-      thrustMotors[1] += 5;
-      thrustMotors[3] += 5;
+  if (cYAxis < 0 || cYAxis > 0) {
+    if(cYAxis > 0) {
+      if(cYAxis > -rollAccel[1]) {
+        thrustMotors[2] += 5;
+        thrustMotors[3] += 5;
+      }
+      else {
+        thrustMotors[0] += 5;
+        thrustMotors[1] += 5;
+      }
     }
-    else if (cXAxis < rollAccel[1]) {
-      thrustMotors[0] += 5;
-      thrustMotors[2] += 5;
+    else {
+      if(-cYAxis > rollAccel[1]) {
+        thrustMotors[0] += 5;
+        thrustMotors[1] += 5;
+      }
+      else {
+        thrustMotors[2] += 5;
+        thrustMotors[3] += 5;
+      }
     }
   }
   else
@@ -540,14 +552,26 @@ void automaticAxis() {
     }
   }
 
-  if (cYAxis < 0 || cYAxis > 0) {
-    if (cYAxis > pitchAccel[1]) {
-      thrustMotors[0] += 5;
-      thrustMotors[1] += 5;
+  if (cXAxis < 0 || cXAxis > 0) {
+    if(cXAxis > 0) {
+      if(cXAxis > -pitchAccel[1]) {
+        thrustMotors[0] += 5;
+        thrustMotors[2] += 5;
+      }
+      else {
+        thrustMotors[1] += 5;
+        thrustMotors[3] += 5;
+      }
     }
-    else if (cYAxis < pitchAccel[1]) {
-      thrustMotors[2] += 5;
-      thrustMotors[3] += 5;
+    else {
+      if(-cXAxis > pitchAccel[1]) {
+        thrustMotors[1] += 5;
+        thrustMotors[3] += 5;
+      }
+      else {
+        thrustMotors[0] += 5;
+        thrustMotors[2] += 5;
+      }
     }
   }
   else
@@ -659,7 +683,7 @@ void lostConnectionTime() {
   if (cCommand == lastCCommand) {
     digitalWrite(pinLED, HIGH);
 
-    isSleeping = true;
+    //isSleeping = true;
   }
   else {
     digitalWrite(pinLED, LOW);
