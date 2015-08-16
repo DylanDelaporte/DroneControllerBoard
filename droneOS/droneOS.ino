@@ -52,6 +52,8 @@ int frontBackCalibrate = 0;
 
 float thrustMotors[4] = {0, 0, 0, 0};
 
+int calibrateMotors[4] = {0, 0, 0, 0};
+
 float pitchAccel[2] = {0, 0};
 float rollAccel[2] = {0, 0};
 
@@ -212,7 +214,7 @@ void setup() {
 
   flashingLED->setInterval(1000);
   flashingLED->onRun(flashLED);
-  
+
   //Serial.println("Initializing : finish");
 }
 
@@ -224,7 +226,7 @@ void loop() {
 
     cXAxis = ((vSonars[0][0] < maxDistanceApproach && cXAxis < 0) || (vSonars[1][0] < maxDistanceApproach && cXAxis > 0)) ? 0 : cXAxis;
     cYAxis = ((vSonars[2][0] < maxDistanceApproach && cYAxis > 0) || (vSonars[3][0] < maxDistanceApproach && cYAxis < 0)) ? 0 : cYAxis;
-    
+
     if (vSonars[0][0] < maxDistanceApproach || vSonars[1][0] < maxDistanceApproach || vSonars[2][0] < maxDistanceApproach || vSonars[3][0] < maxDistanceApproach || vSonars[4][0] < maxDistanceApproach || vSonars[5][0] < maxDistanceApproach) {
       isSleeping = true;
     }
@@ -276,6 +278,11 @@ void loop() {
       thrustMotors[3] += -frontBackCalibrate;
     }
 
+    thrustMotors[0] += calibrateMotors[0];
+    thrustMotors[1] += calibrateMotors[1];
+    thrustMotors[2] += calibrateMotors[2];
+    thrustMotors[3] += calibrateMotors[3];
+
     thrustMotors[0] += cMotor;
     thrustMotors[1] += cMotor;
     thrustMotors[2] += cMotor;
@@ -326,15 +333,15 @@ void checkCommand()
 
 void parseCommand(String command) {
   //Serial.println(command);
-  
+
   cCommand++;
 
   char part1 = command.charAt(0);
 
   int space1 = command.indexOf(" ");
-  
+
   String part2 = command.substring(space1 + 1);
-  
+
   if (part1 == 'P') {
     int comma1 = part2.indexOf("|");
     int comma2 = part2.indexOf("|", comma1 + 1);
@@ -365,6 +372,27 @@ void parseCommand(String command) {
 
     //Serial.println("D C Y");
   }
+  else if (part1 == 'B') {
+    int comma1 = part2.indexOf("|");
+
+    int motorNumber = part2.substring(0, comma1).toInt();
+    int powerMotor = part2.substring(comma1 + 1).toInt();
+
+    switch (motorNumber) {
+      case 0:
+        calibrateMotors[0] = powerMotor;
+        break;
+      case 1:
+        calibrateMotors[1] = powerMotor;
+        break;
+      case 2:
+        calibrateMotors[2] = powerMotor;
+        break;
+      case 3:
+        calibrateMotors[3] = powerMotor;
+        break;
+    }
+  }
   else if (part1 == 'A') {
     if (part2.equalsIgnoreCase("Y")) {
       CALIBRATE_ACCEL_PITCH = -pitchAccel[0];
@@ -391,7 +419,7 @@ void parseCommand(String command) {
     }
     else {
       isSleepingDemand = false;
-      
+
       informationCommand = true;
       countSendCommand = 0;
     }
@@ -433,10 +461,10 @@ void defineDegrees() {
   {
     heading -= 2 * PI;
   }
-  
+
   if (firstTime) {
     vDegrees = heading * 180 / M_PI;
-    
+
     cDegrees = vDegrees;
     firstTime = false;
   }
@@ -519,8 +547,8 @@ void definePitchRoll() {
 
 void automaticAxis() {
   if (cYAxis < 0 || cYAxis > 0) {
-    if(cYAxis > 0) {
-      if(cYAxis > -rollAccel[1]) {
+    if (cYAxis > 0) {
+      if (cYAxis > -rollAccel[1]) {
         thrustMotors[2] += 5;
         thrustMotors[3] += 5;
       }
@@ -530,7 +558,7 @@ void automaticAxis() {
       }
     }
     else {
-      if(-cYAxis > rollAccel[1]) {
+      if (-cYAxis > rollAccel[1]) {
         thrustMotors[0] += 5;
         thrustMotors[1] += 5;
       }
@@ -553,8 +581,8 @@ void automaticAxis() {
   }
 
   if (cXAxis < 0 || cXAxis > 0) {
-    if(cXAxis > 0) {
-      if(cXAxis > -pitchAccel[1]) {
+    if (cXAxis > 0) {
+      if (cXAxis > -pitchAccel[1]) {
         thrustMotors[0] += 5;
         thrustMotors[2] += 5;
       }
@@ -564,7 +592,7 @@ void automaticAxis() {
       }
     }
     else {
-      if(-cXAxis > pitchAccel[1]) {
+      if (-cXAxis > pitchAccel[1]) {
         thrustMotors[1] += 5;
         thrustMotors[3] += 5;
       }
@@ -683,7 +711,7 @@ void lostConnectionTime() {
   if (cCommand == lastCCommand) {
     digitalWrite(pinLED, HIGH);
 
-    //isSleeping = true;
+    isSleeping = true;
   }
   else {
     digitalWrite(pinLED, LOW);
@@ -696,7 +724,7 @@ void lostConnectionTime() {
 
 void sendInformations() {
   if (informationCommand) {
-    if (countSendCommand > 4) {
+    if (countSendCommand > 1) {
       informationCommand = false;
     }
     else {
@@ -709,8 +737,16 @@ void sendInformations() {
       Serial.print("|");
       Serial.print(rotationSensibility);
       Serial.print("|");
-      Serial.println(isFlashingLED ? 1 : 0);
-
+      Serial.print(isFlashingLED ? 1 : 0);
+      Serial.print("|");
+      Serial.print(calibrateMotors[0]);
+      Serial.print("|");
+      Serial.print(calibrateMotors[1]);
+      Serial.print("|");
+      Serial.print(calibrateMotors[2]);
+      Serial.print("|");
+      Serial.print(calibrateMotors[3]);
+      
       countSendCommand++;
     }
   }
