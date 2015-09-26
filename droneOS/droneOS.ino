@@ -13,8 +13,7 @@
 #include <dht11.h>
 #include <Servo.h>
 
-String command = "";
-
+//PINS
 int pinMotor1 = 3;
 int pinMotor2 = 5;
 int pinMotor3 = 6;
@@ -28,31 +27,36 @@ int pinBackSonar = 11;
 int pinUpSonar = 12;
 int pinDownSonar = 13;
 
+int pinVoltageSensor = 1;
 int pinTemperatureSensor = 4;
-
 int pinLED = 13;
 
+//VALUES
 int vSonars[6][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}};
 float vVSpeed = 0;
 float vHSpeed = 0;
 int vDegrees = 0;
+float batteryVoltage;
 int vPressure = 0;
 
-int cMotor = 0;
+//VALUES COMMAND
+String command = "";
 
+int cMotor = 0;
 int cXAxis = 0;
 int cYAxis = 0;
-
 int cDegrees = 0;
 
 int controlMode = 0;
 
+int calibrateMotors[4] = {0, 0, 0, 0};
+
+/*
 int leftRightCalibrate = 0;
 int frontBackCalibrate = 0;
+*/
 
 float thrustMotors[4] = {0, 0, 0, 0};
-
-int calibrateMotors[4] = {0, 0, 0, 0};
 
 float pitchAccel[2] = {0, 0};
 float rollAccel[2] = {0, 0};
@@ -96,17 +100,15 @@ void dmpDataReady() {
 bool firstTime = true;
 
 bool isFlashingLED = false;
-bool isBuzzing = true;
 
 bool isStabilizing = false;
 
 bool isSleeping = false;
-bool isSleepingDemand = false;
+bool isSleepingDemand = true;
 
 bool useSonars = false;
 bool useSensors = true;
-
-int countTest = 0;
+bool useSafety = false;
 
 ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
@@ -150,8 +152,10 @@ void setup() {
 
   pinMode(pinLED, OUTPUT);
 
-  //DHT11.attach(pinTemperatureSensor);
-  //DHT11.read();
+  DHT11.attach(pinTemperatureSensor);
+  DHT11.read();
+  
+  batteryVoltage = (((float)analogRead(1) / 1023) * 25) - 1;
 
   motor1.attach(3);
   motor2.attach(5);
@@ -159,6 +163,8 @@ void setup() {
   motor4.attach(9);
 
   if (useSensors) {
+    Serial.println("ok1");
+    
     mpu.initialize();
 
     devStatus = mpu.dmpInitialize();
@@ -167,6 +173,8 @@ void setup() {
     mpu.setYGyroOffset(76);
     mpu.setZGyroOffset(-85);
     mpu.setZAccelOffset(1788);
+    
+    Serial.println(devStatus);
 
     if (devStatus == 0) {
       // turn on the DMP, now that it's ready
@@ -184,12 +192,14 @@ void setup() {
 
       // get expected DMP packet size for later comparison
       packetSize = mpu.dmpGetFIFOPacketSize();
+      
+      Serial.println("ok2");
     } else {
       //Serial.print(F("DMP Initialization failed (code "));
       Serial.print(devStatus);
       //Serial.println(F(")"));
     }
-
+    
     compass.setRange(HMC5883L_RANGE_1_3GA);
     compass.setMeasurementMode(HMC5883L_CONTINOUS);
     compass.setDataRate(HMC5883L_DATARATE_30HZ);
@@ -240,6 +250,7 @@ void loop() {
     sleepingProcess->run();
 
   if (useSensors) {
+    //Serial.println("ok3");
     defineDegrees();
     definePitchRoll();
   }
@@ -259,7 +270,8 @@ void loop() {
     {
       manualAxis();
     }
-
+    
+    /*
     if (leftRightCalibrate > 0) {
       thrustMotors[1] += leftRightCalibrate;
       thrustMotors[3] += leftRightCalibrate;
@@ -277,6 +289,7 @@ void loop() {
       thrustMotors[2] += -frontBackCalibrate;
       thrustMotors[3] += -frontBackCalibrate;
     }
+    */
 
     thrustMotors[0] += calibrateMotors[0];
     thrustMotors[1] += calibrateMotors[1];
@@ -348,7 +361,11 @@ void parseCommand(String command) {
     int comma3 = part2.indexOf("|", comma2 + 1);
 
     if (!isSleeping && !isSleepingDemand) {
+      Serial.println("ok");
+      
       cMotor = String(part2.substring(0, comma1)).toInt();
+      
+      Serial.println(cMotor);
 
       cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
 
@@ -364,6 +381,7 @@ void parseCommand(String command) {
       controlMode = 0;
     }
   }
+  /*
   else if (part1 == 'C') {
     int comma1 = part2.indexOf("|");
 
@@ -372,6 +390,7 @@ void parseCommand(String command) {
 
     //Serial.println("D C Y");
   }
+  */
   else if (part1 == 'B') {
     int comma1 = part2.indexOf("|");
 
@@ -449,6 +468,8 @@ void defineDegrees() {
 
   float heading = atan2(normCompass.YAxis, normCompass.XAxis);
   float declinationAngle = (1.0 + (18.0 / 60.0)) / (180 / M_PI);
+  
+  //Serial.println(normCompass.YAxis);
 
   heading += declinationAngle;
 
@@ -533,8 +554,8 @@ void definePitchRoll() {
     mpu.dmpGetGravity(&gravity, &q);
     mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
 
-    pitchAccel[0] = (ypr[1] * 180 / M_PI);
-    rollAccel[0] = (ypr[2] * 180 / M_PI);
+    rollAccel[0] = (ypr[1] * 180 / M_PI);
+    pitchAccel[0] = (ypr[2] * 180 / M_PI);
 
     pitchAccel[1] = pitchAccel[0] + CALIBRATE_ACCEL_PITCH;
     rollAccel[1] = rollAccel[0] + CALIBRATE_ACCEL_ROLL;
@@ -705,13 +726,15 @@ void analyzeSonars() {
 
 void analyzeLowSensors() {
   DHT11.read();
+  
+  batteryVoltage = (((float)analogRead(1) / 1023) * 25) - 1;
 }
 
 void lostConnectionTime() {
   if (cCommand == lastCCommand) {
-    digitalWrite(pinLED, HIGH);
+    //digitalWrite(pinLED, HIGH);
 
-    isSleeping = true;
+    //isSleeping = true;
   }
   else {
     digitalWrite(pinLED, LOW);
@@ -745,17 +768,14 @@ void sendInformations() {
       Serial.print("|");
       Serial.print(calibrateMotors[2]);
       Serial.print("|");
-      Serial.print(calibrateMotors[3]);
+      Serial.println(calibrateMotors[3]);
       
       countSendCommand++;
     }
   }
   else {
-    countTest++;
-
     Serial.print("D D ");
     //Serial.print(vSonars[0][0]);
-    //Serial.print(countTest);
     Serial.print(thrustMotors[0]);
     Serial.print("|");
     //Serial.print(vSonars[1][0]);
@@ -777,7 +797,7 @@ void sendInformations() {
     Serial.print("|");
     Serial.print(vDegrees);
     Serial.print("|");
-    Serial.print("12");
+    Serial.print(batteryVoltage);
     Serial.print("|");
     Serial.print("0");
     Serial.print("|");
