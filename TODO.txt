@@ -1,3 +1,4 @@
 lost connection (count command)
 test command
 calibrate command
+check all commands

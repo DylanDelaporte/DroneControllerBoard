@@ -14,10 +14,10 @@
 #include <Servo.h>
 
 //PINS
-int pinMotor1 = 3;
-int pinMotor2 = 5;
-int pinMotor3 = 6;
-int pinMotor4 = 9;
+int pinMotor1 = 9;
+int pinMotor2 = 6;
+int pinMotor3 = 3;
+int pinMotor4 = 5;
 
 int pinTriggerSonar = 4;
 int pinLeftSonar = 7;
@@ -56,10 +56,7 @@ int controlMode = 0;
 int calibrateMotors[4] = {0, 0, 0, 0};
 float thrustMotors[4] = {0, 0, 0, 0};
 
-/*
-int leftRightCalibrate = 0;
-int frontBackCalibrate = 0;
-*/
+int motorNumberTest = -1;
 
 float pitchAccel[2] = {0, 0};
 float rollAccel[2] = {0, 0};
@@ -102,17 +99,17 @@ void dmpDataReady() {
 
 bool firstTime = true;
 
-bool isFlashingLED = false;
-
 bool isStabilizing = false;
 
 bool isSleeping = false;
 bool isSleepingDemand = true;
 
+bool isTestingMotor = false;
+
 bool useSonars = false;
 bool useAccelerometer = false;
 bool useCompass = false;
-bool useSafety = false;
+bool useSafety = true;
 
 bool debugMode = true;
 
@@ -121,7 +118,6 @@ Thread* outputInformations = new Thread();
 Thread* lowSensors = new Thread();
 Thread* lostConnectionTest = new Thread();
 Thread* sleepingProcess = new Thread();
-Thread* flashingLED = new Thread();
 
 MPU6050 mpu;
 HMC5883L compass;
@@ -163,10 +159,10 @@ void setup() {
 
   vBatteryVoltage = ((analogRead(pinVoltageSensor) * 5.0) / 1024.0) / (R2VoltageSensor / (R1VoltageSensor + R2VoltageSensor));
 
-  motor1.attach(3);
-  motor2.attach(5);
-  motor3.attach(6);
-  motor4.attach(9);
+  motor1.attach(pinMotor1);
+  motor2.attach(pinMotor2);
+  motor3.attach(pinMotor3);
+  motor4.attach(pinMotor4);
 
   if (useAccelerometer) {
     consolePrint("-INIT- Accelerometer : YES");
@@ -236,9 +232,6 @@ void setup() {
   sleepingProcess->setInterval(200);
   sleepingProcess->onRun(sleepDrone);
 
-  flashingLED->setInterval(1000);
-  flashingLED->onRun(flashLED);
-
   consolePrint("-INIT- ENDED");
 }
 
@@ -259,7 +252,7 @@ void loop() {
   if (vHSpeed < -0.04) {
     isStabilizing = true;
   }
-  
+
   if (sleepingProcess->shouldRun() && (isSleeping || isSleepingDemand))
     sleepingProcess->run();
 
@@ -291,26 +284,6 @@ void loop() {
       manualAxis();
     }
 
-    /*
-    if (leftRightCalibrate > 0) {
-      thrustMotors[1] += leftRightCalibrate;
-      thrustMotors[3] += leftRightCalibrate;
-    }
-    else if (leftRightCalibrate < 0) {
-      thrustMotors[0] += -leftRightCalibrate;
-      thrustMotors[2] += -leftRightCalibrate;
-    }
-
-    if (frontBackCalibrate > 0) {
-      thrustMotors[0] += frontBackCalibrate;
-      thrustMotors[1] += frontBackCalibrate;
-    }
-    else if (frontBackCalibrate < 0) {
-      thrustMotors[2] += -frontBackCalibrate;
-      thrustMotors[3] += -frontBackCalibrate;
-    }
-    */
-
     thrustMotors[0] += calibrateMotors[0];
     thrustMotors[1] += calibrateMotors[1];
     thrustMotors[2] += calibrateMotors[2];
@@ -324,6 +297,10 @@ void loop() {
     if (thrustMotors[0] < 0 || thrustMotors[1] < 0 || thrustMotors[2] < 0 || thrustMotors[3] < 0) {
       thrustMotors[0] = thrustMotors[1] = thrustMotors[2] = thrustMotors[3] = 0;
     }
+  }
+  else {
+    if (!isSleeping && !isSleepingDemand && isTestingMotor)
+      thrustMotors[motorNumberTest] = 5;
   }
 
   /*
@@ -342,9 +319,6 @@ void loop() {
   motor4.writeMicroseconds(map(thrustMotors[3], 0, 100, MIN_THRUST, MAX_THRUST));
 
   controller.run();
-
-  if (flashingLED->shouldRun() && isFlashingLED)
-    flashingLED->run();
 }
 
 void checkCommand()
@@ -381,16 +355,14 @@ void parseCommand(String command) {
     int comma3 = part2.indexOf("|", comma2 + 1);
 
     if (!isSleeping && !isSleepingDemand) {
-      Serial.println("ok");
-
-      cMotor = String(part2.substring(0, comma1)).toInt();
+      cMotor = part2.substring(0, comma1).toInt();
 
       Serial.println(cMotor);
 
-      cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
+      cDegrees = part2.substring(comma1 + 1, comma2).toInt();
 
-      cXAxis = String(part2.substring(comma2 + 1, comma3)).toInt();
-      cYAxis = String(part2.substring(comma3 + 1)).toInt();
+      cXAxis = part2.substring(comma2 + 1, comma3).toInt();
+      cYAxis = part2.substring(comma3 + 1).toInt();
     }
   }
   else if (part1 == 'M') {
@@ -401,36 +373,32 @@ void parseCommand(String command) {
       controlMode = 0;
     }
   }
-  /*
-  else if (part1 == 'C') {
-    int comma1 = part2.indexOf("|");
-
-    leftRightCalibrate = String(part2.substring(0, comma1)).toInt();
-    frontBackCalibrate = String(part2.substring(comma1 + 1)).toInt();
-
-    //Serial.println("D C Y");
-  }
-  */
   else if (part1 == 'B') {
     int comma1 = part2.indexOf("|");
+    int comma2 = part2.indexOf("|", comma1 + 1);
+    int comma3 = part2.indexOf("|", comma2 + 1);
 
-    int motorNumber = part2.substring(0, comma1).toInt();
-    int powerMotor = part2.substring(comma1 + 1).toInt();
+    int calibrateMotor1 = part2.substring(0, comma1).toInt();
+    int calibrateMotor2 = part2.substring(comma1 + 1, comma2).toInt();
+    int calibrateMotor3 = part2.substring(comma2 + 1, comma3).toInt();
+    int calibrateMotor4 = part2.substring(comma3 + 1).toInt();
 
-    switch (motorNumber) {
-      case 0:
-        calibrateMotors[0] = powerMotor;
-        break;
-      case 1:
-        calibrateMotors[1] = powerMotor;
-        break;
-      case 2:
-        calibrateMotors[2] = powerMotor;
-        break;
-      case 3:
-        calibrateMotors[3] = powerMotor;
-        break;
-    }
+    if (calibrateMotor1 >= 0)
+      calibrateMotors[0] = calibrateMotor1;
+
+    if (calibrateMotor2 >= 0)
+      calibrateMotors[1] = calibrateMotor2;
+
+    if (calibrateMotor3 >= 0)
+      calibrateMotors[2] = calibrateMotor3;
+
+    if (calibrateMotor4 >= 0)
+      calibrateMotors[3] = calibrateMotor4;
+      
+    Serial.println(calibrateMotors[0]);
+    Serial.println(calibrateMotors[1]);
+    Serial.println(calibrateMotors[2]);
+    Serial.println(calibrateMotors[3]);
   }
   else if (part1 == 'A') {
     if (part2.equalsIgnoreCase("Y")) {
@@ -472,13 +440,19 @@ void parseCommand(String command) {
       useSonars = false;
     }
   }
-  else if (part1 == 'L') {
-    if (part2.equalsIgnoreCase("Y")) {
-      isFlashingLED = true;
+  else if (part1 == 'T') {
+    if (isTestingMotor) {
+      isTestingMotor = false;
     }
-    else
-    {
-      isFlashingLED = false;
+    else {
+      int motorNumber = part2.toInt();
+
+      if (motorNumber > 0 && motorNumber < 5) {
+        motorNumberTest = motorNumber - 1;
+
+        Serial.println(motorNumberTest);
+        isTestingMotor = true;
+      }
     }
   }
 }
@@ -783,8 +757,6 @@ void sendInformations() {
       Serial.print("|");
       Serial.print(rotationSensibility);
       Serial.print("|");
-      Serial.print(isFlashingLED ? 1 : 0);
-      Serial.print("|");
       Serial.print(calibrateMotors[0]);
       Serial.print("|");
       Serial.print(calibrateMotors[1]);
@@ -829,22 +801,6 @@ void sendInformations() {
     Serial.print(DHT11.humidity);
     Serial.println();
   }
-}
-
-void flashLED() {
-  digitalWrite(pinLED, HIGH);
-
-  delay(50);
-
-  digitalWrite(pinLED, LOW);
-
-  delay(100);
-
-  digitalWrite(pinLED, HIGH);
-
-  delay(50);
-
-  digitalWrite(pinLED, LOW);
 }
 
 void consolePrint(String message) {
