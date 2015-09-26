@@ -111,7 +111,7 @@ bool useAccelerometer = false;
 bool useCompass = false;
 bool useSafety = true;
 
-bool debugMode = true;
+bool debugMode = false;
 
 ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
@@ -148,7 +148,7 @@ void setup() {
 #endif
   }
 
-  Serial.begin(115200);
+  Serial.begin(9600);
 
   consolePrint("-INIT- Attach variables");
 
@@ -177,20 +177,12 @@ void setup() {
     mpu.setZAccelOffset(1788);
 
     if (devStatus == 0) {
-      // turn on the DMP, now that it's ready
-      //Serial.println(F("Enabling DMP..."));
       mpu.setDMPEnabled(true);
-
-      // enable Arduino interrupt detection
-      //Serial.println(F("Enabling interrupt detection (Arduino external interrupt 0)..."));
+      
       attachInterrupt(0, dmpDataReady, RISING);
+      
       mpuIntStatus = mpu.getIntStatus();
-
-      // set our DMP Ready flag so the main loop() function knows it's okay to use it
-      //Serial.println(F("DMP ready! Waiting for first interrupt..."));
       dmpReady = true;
-
-      // get expected DMP packet size for later comparison
       packetSize = mpu.dmpGetFIFOPacketSize();
 
       consolePrint("-INIT- Accelerometer, DMP : OK");
@@ -302,17 +294,7 @@ void loop() {
     if (!isSleeping && !isSleepingDemand && isTestingMotor)
       thrustMotors[motorNumberTest] = 5;
   }
-
-  /*
-  Serial.print(thrustMotors[0]);
-  Serial.print(" - ");
-  Serial.print(thrustMotors[1]);
-  Serial.print(" - ");
-  Serial.print(thrustMotors[2]);
-  Serial.print(" - ");
-  Serial.println(thrustMotors[3]);
-  */
-
+  
   motor1.writeMicroseconds(map(thrustMotors[0], 0, 100, MIN_THRUST, MAX_THRUST));
   motor2.writeMicroseconds(map(thrustMotors[1], 0, 100, MIN_THRUST, MAX_THRUST));
   motor3.writeMicroseconds(map(thrustMotors[2], 0, 100, MIN_THRUST, MAX_THRUST));
@@ -356,9 +338,7 @@ void parseCommand(String command) {
 
     if (!isSleeping && !isSleepingDemand) {
       cMotor = part2.substring(0, comma1).toInt();
-
-      Serial.println(cMotor);
-
+      
       cDegrees = part2.substring(comma1 + 1, comma2).toInt();
 
       cXAxis = part2.substring(comma2 + 1, comma3).toInt();
@@ -394,11 +374,6 @@ void parseCommand(String command) {
 
     if (calibrateMotor4 >= 0)
       calibrateMotors[3] = calibrateMotor4;
-      
-    Serial.println(calibrateMotors[0]);
-    Serial.println(calibrateMotors[1]);
-    Serial.println(calibrateMotors[2]);
-    Serial.println(calibrateMotors[3]);
   }
   else if (part1 == 'A') {
     if (part2.equalsIgnoreCase("Y")) {
@@ -409,8 +384,8 @@ void parseCommand(String command) {
   else if (part1 == 'O') {
     int comma1 = part2.indexOf("|");
 
-    int tempAxisSensibility = String(part2.substring(0, comma1)).toInt();
-    int tempRotationSensibility = String(part2.substring(comma1 + 1)).toInt();
+    int tempAxisSensibility = part2.substring(0, comma1).toInt();
+    int tempRotationSensibility = part2.substring(comma1 + 1).toInt();
 
     if (tempAxisSensibility >= 5) {
       axisSensibility = tempAxisSensibility;
@@ -420,7 +395,7 @@ void parseCommand(String command) {
       rotationSensibility = tempRotationSensibility;
     }
   }
-  else if (part1 == 'H') {
+  else if (part1 == 'L') {
     if (part2.equalsIgnoreCase("Y")) {
       isSleepingDemand = true;
     }
@@ -449,8 +424,6 @@ void parseCommand(String command) {
 
       if (motorNumber > 0 && motorNumber < 5) {
         motorNumberTest = motorNumber - 1;
-
-        Serial.println(motorNumberTest);
         isTestingMotor = true;
       }
     }
@@ -462,9 +435,7 @@ void defineDegrees() {
 
   float heading = atan2(normCompass.YAxis, normCompass.XAxis);
   float declinationAngle = (1.0 + (18.0 / 60.0)) / (180 / M_PI);
-
-  //Serial.println(normCompass.YAxis);
-
+  
   heading += declinationAngle;
 
   if (heading < 0)
@@ -496,14 +467,14 @@ void setDegrees() {
       if ((cDegrees - vDegrees) < ((360 - cDegrees) + vDegrees)) {
         thrustMotors[0] += rotationSensibility;
         thrustMotors[1] -= rotationSensibility;
-        thrustMotors[2] -= rotationSensibility;
-        thrustMotors[3] += rotationSensibility;
+        thrustMotors[2] += rotationSensibility;
+        thrustMotors[3] -= rotationSensibility;
       }
       else {
         thrustMotors[0] -= rotationSensibility;
         thrustMotors[1] += rotationSensibility;
-        thrustMotors[2] += rotationSensibility;
-        thrustMotors[3] -= rotationSensibility;
+        thrustMotors[2] -= rotationSensibility;
+        thrustMotors[3] += rotationSensibility;
       }
     }
     else if (cDegrees < vDegrees)
@@ -511,14 +482,14 @@ void setDegrees() {
       if ((vDegrees - cDegrees) > ((360 - vDegrees) + cDegrees)) {
         thrustMotors[0] += rotationSensibility;
         thrustMotors[1] -= rotationSensibility;
-        thrustMotors[2] -= rotationSensibility;
-        thrustMotors[3] += rotationSensibility;
+        thrustMotors[2] += rotationSensibility;
+        thrustMotors[3] -= rotationSensibility;
       }
       else {
         thrustMotors[0] -= rotationSensibility;
         thrustMotors[1] += rotationSensibility;
-        thrustMotors[2] += rotationSensibility;
-        thrustMotors[3] -= rotationSensibility;
+        thrustMotors[2] -= rotationSensibility;
+        thrustMotors[3] += rotationSensibility;
       }
     }
   }
@@ -536,7 +507,6 @@ void definePitchRoll() {
 
   if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
     mpu.resetFIFO();
-    //Serial.println(F("FIFO overflow!"));
   } else if (mpuIntStatus & 0x02) {
     while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
 
@@ -553,10 +523,6 @@ void definePitchRoll() {
 
     pitchAccel[1] = pitchAccel[0] + CALIBRATE_ACCEL_PITCH;
     rollAccel[1] = rollAccel[0] + CALIBRATE_ACCEL_ROLL;
-
-    //Serial.print(rollAccel);
-    //Serial.print("\t");
-    //Serial.println(pitchAccel);
   }
 }
 
@@ -633,19 +599,19 @@ void automaticAxis() {
 void manualAxis() {
   if (cXAxis > 0) {
     thrustMotors[0] += (((float)cXAxis / (float)45) * axisSensibility);
-    thrustMotors[2] += (((float)cXAxis / (float)45) * axisSensibility);
+    thrustMotors[1] += (((float)cXAxis / (float)45) * axisSensibility);
   }
   else if (cXAxis < 0) {
-    thrustMotors[1] += (((float) - cXAxis / (float)45) * axisSensibility);
+    thrustMotors[2] += (((float) - cXAxis / (float)45) * axisSensibility);
     thrustMotors[3] += (((float) - cXAxis / (float)45) * axisSensibility);
   }
 
   if (cYAxis > 0) {
-    thrustMotors[0] += (((float)cYAxis / (float)45) * axisSensibility);
     thrustMotors[1] += (((float)cYAxis / (float)45) * axisSensibility);
+    thrustMotors[2] += (((float)cYAxis / (float)45) * axisSensibility);
   }
   else if (cYAxis < 0) {
-    thrustMotors[2] += (((float) - cYAxis / (float)45) * axisSensibility);
+    thrustMotors[0] += (((float) - cYAxis / (float)45) * axisSensibility);
     thrustMotors[3] += (((float) - cYAxis / (float)45) * axisSensibility);
   }
 }

@@ -1,4 +1,7 @@
-lost connection (count command)
-test command
-calibrate command
+*lost connection (count command)
+*test command
+*calibrate command
 check all commands
+*manual axis
+automatic axis
+set degrees
