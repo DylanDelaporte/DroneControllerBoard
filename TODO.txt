@@ -1,0 +1,3 @@
+lost connection (count command)
+test command
+calibrate command

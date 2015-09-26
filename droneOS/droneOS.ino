@@ -27,7 +27,7 @@ int pinBackSonar = 11;
 int pinUpSonar = 12;
 int pinDownSonar = 13;
 
-int pinVoltageSensor = 1;
+int pinVoltageSensor = A1;
 int pinTemperatureSensor = 4;
 int pinLED = 13;
 
@@ -36,7 +36,11 @@ int vSonars[6][3] = {{0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 0, 0}, {0, 
 float vVSpeed = 0;
 float vHSpeed = 0;
 int vDegrees = 0;
-float batteryVoltage;
+
+float vBatteryVoltage;
+float R1VoltageSensor = 30000.0;
+float R2VoltageSensor = 7500.0;
+
 int vPressure = 0;
 
 //VALUES COMMAND
@@ -50,13 +54,12 @@ int cDegrees = 0;
 int controlMode = 0;
 
 int calibrateMotors[4] = {0, 0, 0, 0};
+float thrustMotors[4] = {0, 0, 0, 0};
 
 /*
 int leftRightCalibrate = 0;
 int frontBackCalibrate = 0;
 */
-
-float thrustMotors[4] = {0, 0, 0, 0};
 
 float pitchAccel[2] = {0, 0};
 float rollAccel[2] = {0, 0};
@@ -107,8 +110,11 @@ bool isSleeping = false;
 bool isSleepingDemand = true;
 
 bool useSonars = false;
-bool useSensors = true;
+bool useAccelerometer = false;
+bool useCompass = false;
 bool useSafety = false;
+
+bool debugMode = true;
 
 ThreadController controller = ThreadController();
 Thread* outputInformations = new Thread();
@@ -137,7 +143,7 @@ Servo motor3;
 Servo motor4;
 
 void setup() {
-  if (useSensors) {
+  if (useAccelerometer) {
 #if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
     Wire.begin();
     TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
@@ -148,23 +154,23 @@ void setup() {
 
   Serial.begin(115200);
 
-  //Serial.println("Initializing : start");
+  consolePrint("-INIT- Attach variables");
 
   pinMode(pinLED, OUTPUT);
 
   DHT11.attach(pinTemperatureSensor);
   DHT11.read();
-  
-  batteryVoltage = (((float)analogRead(1) / 1023) * 25) - 1;
+
+  vBatteryVoltage = ((analogRead(pinVoltageSensor) * 5.0) / 1024.0) / (R2VoltageSensor / (R1VoltageSensor + R2VoltageSensor));
 
   motor1.attach(3);
   motor2.attach(5);
   motor3.attach(6);
   motor4.attach(9);
 
-  if (useSensors) {
-    Serial.println("ok1");
-    
+  if (useAccelerometer) {
+    consolePrint("-INIT- Accelerometer : YES");
+
     mpu.initialize();
 
     devStatus = mpu.dmpInitialize();
@@ -173,8 +179,6 @@ void setup() {
     mpu.setYGyroOffset(76);
     mpu.setZGyroOffset(-85);
     mpu.setZAccelOffset(1788);
-    
-    Serial.println(devStatus);
 
     if (devStatus == 0) {
       // turn on the DMP, now that it's ready
@@ -192,20 +196,30 @@ void setup() {
 
       // get expected DMP packet size for later comparison
       packetSize = mpu.dmpGetFIFOPacketSize();
-      
-      Serial.println("ok2");
+
+      consolePrint("-INIT- Accelerometer, DMP : OK");
     } else {
-      //Serial.print(F("DMP Initialization failed (code "));
-      Serial.print(devStatus);
-      //Serial.println(F(")"));
+      consolePrint("-INIT- Accelerometer, DMP : FAILED");
     }
-    
+  }
+  else {
+    consolePrint("-INIT- Accelerometer : NO");
+  }
+
+  if (useCompass) {
+    consolePrint("-INIT- Compass : YES");
+
     compass.setRange(HMC5883L_RANGE_1_3GA);
     compass.setMeasurementMode(HMC5883L_CONTINOUS);
     compass.setDataRate(HMC5883L_DATARATE_30HZ);
     compass.setSamples(HMC5883L_SAMPLES_8);
     compass.setOffset(124, -118);
   }
+  else {
+    consolePrint("-INIT- Compass : NO");
+  }
+
+  consolePrint("-INIT- Define threads");
 
   outputInformations->setInterval(250);
   outputInformations->onRun(sendInformations);
@@ -225,7 +239,7 @@ void setup() {
   flashingLED->setInterval(1000);
   flashingLED->onRun(flashLED);
 
-  //Serial.println("Initializing : finish");
+  consolePrint("-INIT- ENDED");
 }
 
 void loop() {
@@ -245,15 +259,20 @@ void loop() {
   if (vHSpeed < -0.04) {
     isStabilizing = true;
   }
-
+  
   if (sleepingProcess->shouldRun() && (isSleeping || isSleepingDemand))
     sleepingProcess->run();
 
-  if (useSensors) {
-    //Serial.println("ok3");
-    defineDegrees();
+  if (isSleeping || isSleepingDemand)
+    digitalWrite(pinLED, HIGH);
+  else
+    digitalWrite(pinLED, LOW);
+
+  if (useAccelerometer)
     definePitchRoll();
-  }
+
+  if (useCompass)
+    defineDegrees();
 
   thrustMotors[0] = 0;
   thrustMotors[1] = 0;
@@ -261,16 +280,17 @@ void loop() {
   thrustMotors[3] = 0;
 
   if (cMotor > 0) {
-    setDegrees();
+    if (useCompass)
+      setDegrees();
 
-    if (controlMode == 1) {
+    if (controlMode == 1 && useAccelerometer && useCompass) {
       automaticAxis();
     }
     else
     {
       manualAxis();
     }
-    
+
     /*
     if (leftRightCalibrate > 0) {
       thrustMotors[1] += leftRightCalibrate;
@@ -345,7 +365,7 @@ void checkCommand()
 }
 
 void parseCommand(String command) {
-  //Serial.println(command);
+  consolePrint("-COMMAND- '" + command + "'");
 
   cCommand++;
 
@@ -362,9 +382,9 @@ void parseCommand(String command) {
 
     if (!isSleeping && !isSleepingDemand) {
       Serial.println("ok");
-      
+
       cMotor = String(part2.substring(0, comma1)).toInt();
-      
+
       Serial.println(cMotor);
 
       cDegrees = String(part2.substring(comma1 + 1, comma2)).toInt();
@@ -468,7 +488,7 @@ void defineDegrees() {
 
   float heading = atan2(normCompass.YAxis, normCompass.XAxis);
   float declinationAngle = (1.0 + (18.0 / 60.0)) / (180 / M_PI);
-  
+
   //Serial.println(normCompass.YAxis);
 
   heading += declinationAngle;
@@ -725,24 +745,27 @@ void analyzeSonars() {
 }
 
 void analyzeLowSensors() {
+  consolePrint("-THREAD- analyzeLowSensors");
+
   DHT11.read();
-  
-  batteryVoltage = (((float)analogRead(1) / 1023) * 25) - 1;
+
+  vBatteryVoltage = ((analogRead(pinVoltageSensor) * 5.0) / 1024.0) / (R2VoltageSensor / (R1VoltageSensor + R2VoltageSensor));
 }
 
 void lostConnectionTime() {
-  if (cCommand == lastCCommand) {
-    //digitalWrite(pinLED, HIGH);
+  if (useSafety) {
+    if (cCommand == lastCCommand) {
+      isSleeping = true;
+    }
+    else {
+      isSleeping = false;
+    }
 
-    //isSleeping = true;
+    lastCCommand = cCommand;
   }
   else {
-    digitalWrite(pinLED, LOW);
-
     isSleeping = false;
   }
-
-  lastCCommand = cCommand;
 }
 
 void sendInformations() {
@@ -769,7 +792,7 @@ void sendInformations() {
       Serial.print(calibrateMotors[2]);
       Serial.print("|");
       Serial.println(calibrateMotors[3]);
-      
+
       countSendCommand++;
     }
   }
@@ -797,7 +820,7 @@ void sendInformations() {
     Serial.print("|");
     Serial.print(vDegrees);
     Serial.print("|");
-    Serial.print(batteryVoltage);
+    Serial.print(vBatteryVoltage);
     Serial.print("|");
     Serial.print("0");
     Serial.print("|");
@@ -822,6 +845,11 @@ void flashLED() {
   delay(50);
 
   digitalWrite(pinLED, LOW);
+}
+
+void consolePrint(String message) {
+  if (debugMode)
+    Serial.println(message);
 }
 
 
