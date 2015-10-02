@@ -1,10 +1,7 @@
-#include "I2Cdev.h"
+#include <Wire.h>
+#include "Kalman.h"
 
-#include "MPU6050_6Axis_MotionApps20.h"
-
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-#include "Wire.h"
-#endif
+#define RESTRICT_PITCH
 
 #include <Thread.h>
 #include <ThreadController.h>
@@ -76,26 +73,20 @@ int MAX_THRUST = 2000;
 float CALIBRATE_ACCEL_PITCH = 0;
 float CALIBRATE_ACCEL_ROLL = 0;
 
+Kalman kalmanX;
+Kalman kalmanY;
+
+double accX, accY, accZ;
+double gyroX, gyroY, gyroZ;
+int16_t tempRaw;
+
+double kalAngleX, kalAngleY;
+
+uint32_t timer;
+uint8_t i2cData[14];
+
 int axisSensibility = 10;
 int rotationSensibility = 2;
-
-bool dmpReady = false;  // set true if DMP init was successful
-uint8_t mpuIntStatus;   // holds actual interrupt status byte from MPU
-uint8_t devStatus;      // return status after each device operation (0 = success, !0 = error)
-uint16_t packetSize;    // expected DMP packet size (default is 42 bytes)
-uint16_t fifoCount;     // count of all bytes currently in FIFO
-uint8_t fifoBuffer[64]; // FIFO storage buffer
-
-Quaternion q;
-VectorFloat gravity;
-
-float ypr[3];
-
-volatile bool mpuInterrupt = false;
-
-void dmpDataReady() {
-  mpuInterrupt = true;
-}
 
 bool firstTime = true;
 
@@ -108,7 +99,7 @@ bool isTestingMotor = false;
 
 bool useSonars = false;
 bool useAccelerometer = true;
-bool useCompass = false;
+bool useCompass = true;
 bool useSafety = false;
 
 bool debugMode = false;
@@ -119,7 +110,6 @@ Thread* lowSensors = new Thread();
 Thread* lostConnectionTest = new Thread();
 Thread* sleepingProcess = new Thread();
 
-MPU6050 mpu;
 HMC5883L compass;
 
 NewPing sonars[6] = {
@@ -139,16 +129,6 @@ Servo motor3;
 Servo motor4;
 
 void setup() {
-  noInterrupts();
-  if (useAccelerometer) {
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-    Wire.begin();
-    TWBR = 24; // 400kHz I2C clock (200kHz if CPU is 8MHz)
-#elif I2CDEV_IMPLEMENTATION == I2CDEV_BUILTIN_FASTWIRE
-    Fastwire::setup(400, true);
-#endif
-  }
-
   Serial.begin(9600);
 
   consolePrint("-INIT- Attach variables");
@@ -167,29 +147,8 @@ void setup() {
 
   if (useAccelerometer) {
     consolePrint("-INIT- Accelerometer : YES");
-
-    mpu.initialize();
-
-    devStatus = mpu.dmpInitialize();
-
-    mpu.setXGyroOffset(220);
-    mpu.setYGyroOffset(76);
-    mpu.setZGyroOffset(-85);
-    mpu.setZAccelOffset(1788);
-
-    if (devStatus == 0) {
-      mpu.setDMPEnabled(true);
-      
-      attachInterrupt(0, dmpDataReady, RISING);
-      
-      mpuIntStatus = mpu.getIntStatus();
-      dmpReady = true;
-      packetSize = mpu.dmpGetFIFOPacketSize();
-
-      consolePrint("-INIT- Accelerometer, DMP : OK");
-    } else {
-      consolePrint("-INIT- Accelerometer, DMP : FAILED");
-    }
+    
+    initMPU6050();
   }
   else {
     consolePrint("-INIT- Accelerometer : NO");
@@ -229,8 +188,6 @@ void setup() {
 }
 
 void loop() {
-  //noInterrupts();
-  
   checkCommand();
 
   if (useSonars) {
@@ -256,13 +213,9 @@ void loop() {
   else
     digitalWrite(pinLED, LOW);
   
-  //interrupts();
-  
   if (useAccelerometer)
-    definePitchRoll();
-    
-  //noInterrupts();
-  
+    updateMPU6050();
+
   if (useCompass)
     defineDegrees();
 
@@ -301,7 +254,7 @@ void loop() {
     if (!isSleeping && !isSleepingDemand && isTestingMotor)
       thrustMotors[motorNumberTest] = 5;
   }
-  
+
   motor1.writeMicroseconds(map(thrustMotors[0], 0, 100, MIN_THRUST, MAX_THRUST));
   motor2.writeMicroseconds(map(thrustMotors[1], 0, 100, MIN_THRUST, MAX_THRUST));
   motor3.writeMicroseconds(map(thrustMotors[2], 0, 100, MIN_THRUST, MAX_THRUST));
@@ -345,7 +298,7 @@ void parseCommand(String command) {
 
     if (!isSleeping && !isSleepingDemand) {
       cMotor = part2.substring(0, comma1).toInt();
-      
+
       cDegrees = part2.substring(comma1 + 1, comma2).toInt();
 
       cXAxis = part2.substring(comma2 + 1, comma3).toInt();
@@ -439,14 +392,14 @@ void parseCommand(String command) {
 
 void defineDegrees() {
   //Serial.println("ok1");
-  
+
   Vector normCompass = compass.readNormalize();
-  
+
   //Serial.println("ok2");
 
   float heading = atan2(normCompass.YAxis, normCompass.XAxis);
   float declinationAngle = (1.0 + (18.0 / 60.0)) / (180 / M_PI);
-  
+
   heading += declinationAngle;
 
   if (heading < 0)
@@ -506,39 +459,92 @@ void setDegrees() {
   }
 }
 
-void definePitchRoll() {
-  Serial.println("ok1");
-  
-  if (!dmpReady) return;
-  
-  while (!mpuInterrupt && fifoCount < packetSize) {}
-  
-  mpuInterrupt = false;
-  mpuIntStatus = mpu.getIntStatus();
-  
-  Serial.println("ok2");
+void initMPU6050() {
+  Wire.begin();
+  TWBR = ((F_CPU / 400000L) - 16) / 2;
 
-  fifoCount = mpu.getFIFOCount();
-  
-  if ((mpuIntStatus & 0x10) || fifoCount == 1024) {
-    mpu.resetFIFO();
-  } else if (mpuIntStatus & 0x02) {
-    while (fifoCount < packetSize) fifoCount = mpu.getFIFOCount();
+  i2cData[0] = 7;
+  i2cData[1] = 0x00;
+  i2cData[2] = 0x00;
+  i2cData[3] = 0x00;
+  while (i2cWrite(0x19, i2cData, 4, false));
+  while (i2cWrite(0x6B, 0x01, true));
 
-    mpu.getFIFOBytes(fifoBuffer, packetSize);
-
-    fifoCount -= packetSize;
-    
-    mpu.dmpGetQuaternion(&q, fifoBuffer);
-    mpu.dmpGetGravity(&gravity, &q);
-    mpu.dmpGetYawPitchRoll(ypr, &q, &gravity);
-    
-    pitchAccel[0] = (ypr[1] * 180 / M_PI);
-    rollAccel[0] = (ypr[2] * 180 / M_PI);
-
-    pitchAccel[1] = pitchAccel[0] + CALIBRATE_ACCEL_PITCH;
-    rollAccel[1] = rollAccel[0] + CALIBRATE_ACCEL_ROLL;
+  while (i2cRead(0x75, i2cData, 1));
+  if (i2cData[0] != 0x68) {
+    Serial.print(F("Error reading sensor"));
+    while (1);
   }
+
+  delay(100);
+
+  while (i2cRead(0x3B, i2cData, 6));
+  accX = (i2cData[0] << 8) | i2cData[1];
+  accY = (i2cData[2] << 8) | i2cData[3];
+  accZ = (i2cData[4] << 8) | i2cData[5];
+
+#ifdef RESTRICT_PITCH
+  double roll  = atan2(accY, accZ) * RAD_TO_DEG;
+  double pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG;
+#else
+  double roll  = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
+  double pitch = atan2(-accX, accZ) * RAD_TO_DEG;
+#endif
+
+  kalmanX.setAngle(roll);
+  kalmanY.setAngle(pitch);
+
+  timer = micros();
+}
+
+void updateMPU6050() {
+  while (i2cRead(0x3B, i2cData, 14));
+  accX = ((i2cData[0] << 8) | i2cData[1]);
+  accY = ((i2cData[2] << 8) | i2cData[3]);
+  accZ = ((i2cData[4] << 8) | i2cData[5]);
+  tempRaw = (i2cData[6] << 8) | i2cData[7];
+  gyroX = (i2cData[8] << 8) | i2cData[9];
+  gyroY = (i2cData[10] << 8) | i2cData[11];
+  gyroZ = (i2cData[12] << 8) | i2cData[13];
+
+  double dt = (double)(micros() - timer) / 1000000; // Calculate delta time
+  timer = micros();
+
+#ifdef RESTRICT_PITCH // Eq. 25 and 26
+  double roll  = atan2(accY, accZ) * RAD_TO_DEG;
+  double pitch = atan(-accX / sqrt(accY * accY + accZ * accZ)) * RAD_TO_DEG;
+#else // Eq. 28 and 29
+  double roll  = atan(accY / sqrt(accX * accX + accZ * accZ)) * RAD_TO_DEG;
+  double pitch = atan2(-accX, accZ) * RAD_TO_DEG;
+#endif
+
+  double gyroXrate = gyroX / 131.0; // Convert to deg/s
+  double gyroYrate = gyroY / 131.0; // Convert to deg/s
+
+#ifdef RESTRICT_PITCH
+  if ((roll < -90 && kalAngleX > 90) || (roll > 90 && kalAngleX < -90)) {
+    kalmanX.setAngle(roll);
+    rollAccel[0] = roll;
+  } else
+    rollAccel[0] = kalmanX.getAngle(roll, gyroXrate, dt);
+
+  if (abs(kalAngleX) > 90)
+    gyroYrate = -gyroYrate;
+  pitchAccel[0] = -kalmanY.getAngle(pitch, gyroYrate, dt);
+#else
+  if ((pitch < -90 && kalAngleY > 90) || (pitch > 90 && kalAngleY < -90)) {
+    kalmanY.setAngle(pitch);
+    pitchAccel[0] = -pitch;
+  } else
+    pitchAccel[0] = -kalmanY.getAngle(pitch, gyroYrate, dt);
+
+  if (abs(kalAngleY) > 90)
+    gyroXrate = -gyroXrate;
+  rollAccel[0] = kalmanX.getAngle(roll, gyroXrate, dt);
+#endif
+
+  pitchAccel[1] = pitchAccel[0] + CALIBRATE_ACCEL_PITCH;
+  rollAccel[1] =  rollAccel[0] + CALIBRATE_ACCEL_ROLL;
 }
 
 void automaticAxis() {
