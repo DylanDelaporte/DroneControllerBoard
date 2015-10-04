@@ -11,6 +11,6 @@ Drone OS is the arduino sketch to control a drone (use with Py and Qt).
 | mode | _M 1(automatic) or 0(manual)_ |
 | options | _O axisSensibility(°)\|rotationSensibility(°)_ |
 | informations | _I Y_ |
-| sleep | _H Y/N_ |
+| lock drone (sleep mode) | _L Y/N_ |
 | sonars | _S Y/N_ |
-| led flashing | _L Y/N_ |
+| test motors (on/off) | _T motorNumber_ |
