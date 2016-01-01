@@ -12,7 +12,7 @@
 
 //PINS
 int pinMotor1 = 9;
-int pinMotor2 = 6;
+int pinMotor2 = 2;
 int pinMotor3 = 3;
 int pinMotor4 = 5;
 
@@ -25,7 +25,7 @@ int pinUpSonar = 12;
 int pinDownSonar = 13;
 
 int pinVoltageSensor = A1;
-int pinTemperatureSensor = 4;
+int pinTemperatureSensor = 11;
 int pinLED = 13;
 
 //VALUES
@@ -42,6 +42,7 @@ int vPressure = 0;
 
 //VALUES COMMAND
 String command = "";
+String lastCommand = "";
 
 int cMotor = 0;
 int cXAxis = 0;
@@ -100,7 +101,7 @@ bool isTestingMotor = false;
 bool useSonars = false;
 bool useAccelerometer = true;
 bool useCompass = true;
-bool useSafety = false;
+bool useSafety = true;
 
 bool debugMode = false;
 
@@ -169,7 +170,7 @@ void setup() {
 
   consolePrint("-INIT- Define threads");
 
-  outputInformations->setInterval(250);
+  outputInformations->setInterval(150);
   outputInformations->onRun(sendInformations);
   controller.add(outputInformations);
 
@@ -282,6 +283,10 @@ void checkCommand()
 
 void parseCommand(String command) {
   consolePrint("-COMMAND- '" + command + "'");
+  
+  lastCommand = command;
+  lastCommand.replace(" ", "_");
+  lastCommand.replace("|", ".");
 
   cCommand++;
 
@@ -506,7 +511,7 @@ void updateMPU6050() {
   gyroX = (i2cData[8] << 8) | i2cData[9];
   gyroY = (i2cData[10] << 8) | i2cData[11];
   gyroZ = (i2cData[12] << 8) | i2cData[13];
-
+  
   double dt = (double)(micros() - timer) / 1000000; // Calculate delta time
   timer = micros();
 
@@ -773,7 +778,8 @@ void sendInformations() {
     Serial.print("|");
     Serial.print(rollAccel[1]);
     Serial.print("|");
-    Serial.print(vVSpeed);
+    //Serial.print(vVSpeed);
+    Serial.print(lastCommand);
     Serial.print("|");
     Serial.print(vHSpeed);
     Serial.print("|");
